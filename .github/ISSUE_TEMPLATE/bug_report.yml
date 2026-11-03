@@ -1,0 +1,96 @@
+name: 🐞 Баг или краш клиента
+description: Ошибка, вылет или некорректная работа клиентской сборки Blockfield
+title: "[Баг]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо, что сообщаете о проблеме! Заполните форму как можно подробнее — без версии сборки и логов разобраться почти невозможно.
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия сборки
+      description: Тег релиза со страницы [Releases](https://github.com/Blockfield/blockfield-releases/releases)
+      placeholder: "например, v2.22.3"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: distribution
+    attributes:
+      label: Способ установки
+      options:
+        - Blockfield Launcher
+        - Prism Launcher / MultiMC (Blockfield-prism.zip)
+        - Modrinth App / .mrpack (Blockfield.mrpack)
+        - Ручная установка (Blockfield-client.zip)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Операционная система
+      options:
+        - Windows 10/11
+        - Linux
+        - macOS
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Железо и Java
+      description: Видеокарта, объём выделенной памяти, версия Java
+      placeholder: "RTX 3060, 6 ГБ выделено, Temurin 21.0.4"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Что произошло
+      description: Коротко опишите проблему
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      placeholder: |
+        1. Зайти на сервер
+        2. Взять класс «Инженер»
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемое поведение
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи
+      description: |
+        Вставьте `logs/latest.log` или файл из `crash-reports/`. Большие файлы лучше прикрепить через поле ниже или ссылкой на [mclo.gs](https://mclo.gs).
+      render: shell
+
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Скриншоты, видео, файлы
+      description: Перетащите файлы в это поле
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Проверка
+      options:
+        - label: Я поискал(а) похожие [issues](https://github.com/Blockfield/blockfield-releases/issues?q=is%3Aissue) и не нашёл(ла) дубликат
+          required: true
+        - label: Проблема воспроизводится на последней версии сборки
+          required: false

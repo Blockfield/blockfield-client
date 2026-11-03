@@ -1,0 +1,9 @@
+.tools/
+__pycache__/
+*.jar
+/dist/
+/files/
+.playwright-cli/
+/shaderpacks/*.zip
+
+.cache/quality/

@@ -1,0 +1,8 @@
+name = "Porting Lib Item Abilities"
+filename = "porting_lib_item_abilities-3.1.0-beta.90+1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/import-2.53.0/porting_lib_item_abilities-3.1.0-beta.90%2B1.21.1.jar"
+hash-format = "sha512"
+hash = "1a1af837508d3535f622ac2be18a4b1c3691a3e413765fec1d9357d95d0f84b797e7e8d59fe9e88c13120d7925f7a1b3b42ae76d76620aed3b2b0d8333a0042f"

@@ -1,0 +1,8 @@
+name = "Porting Lib Render Types"
+filename = "porting_lib_render_types-3.1.0-beta.90+1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/import-2.53.0/porting_lib_render_types-3.1.0-beta.90%2B1.21.1.jar"
+hash-format = "sha512"
+hash = "7bebc743e5b8b675773c6579ea220b8b88f1a012ee344dc9a7303b5b2ab58c48a5622a3e74d9c934287ab43ed3501bbf3b2e136c17a378949d2fe42ac9b61a5d"

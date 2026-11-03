@@ -1,0 +1,8 @@
+name = "Porting Lib Registry"
+filename = "porting_lib_registry-3.1.0-beta.90+1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/import-2.53.0/porting_lib_registry-3.1.0-beta.90%2B1.21.1.jar"
+hash-format = "sha512"
+hash = "896d34b48713ee841e748917b59ab58fb9049690d5806500394028684f41f1562348d3ede6815dee99592049799def4cef3297bde78860b9406a5dc3b04f0e69"

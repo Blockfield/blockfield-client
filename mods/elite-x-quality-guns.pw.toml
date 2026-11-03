@@ -1,0 +1,8 @@
+name = "[UNOFFICIAL] Elite X Quality Guns 4.2.1 (как на Forge; исключены backup-скрипты, исправлен звук Benelli от третьего лица, АК под id elitex:ak47, битые ссылки на звуки, без сломанного TRS Bull, честный вес стволов, баланс Benelli/RO635/M4 SOPMOD, доставание и перезарядка АК/M4 как в 5.1, анимации подогнаны под тайминги, прозрачные иконки и HUD Blockfield)"
+filename = "Elite x Quality Guns Fabric v4.2.1 - 1.21.1-bf10.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/elite-x/releases/download/bf10/Elite.x.Quality.Guns.Fabric.v4.2.1.-.1.21.1-bf10.jar"
+hash-format = "sha512"
+hash = "dde1549d2c7e435df7e8dc090d158e2c69ae5a84c58144ee8d22128a88f1c881a2ef301b6c4b1cc2192dc95106faa7ae27cbbb1365b962d61725c188d062bbc6"

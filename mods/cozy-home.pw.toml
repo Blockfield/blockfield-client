@@ -1,0 +1,8 @@
+name = "Lucky's Cozy Home: Refurnished (битые ссылки моделей воды исправлены)"
+filename = "Luckys-Cozyhome-Refurnished-1.1.20-bf1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/cozy-home/releases/download/import-2.53.0/Luckys-Cozyhome-Refurnished-1.1.20-bf1.jar"
+hash-format = "sha512"
+hash = "4d5887598b93015903ef604fa25e82454114eca6f6ede01530ced8c9fb2afe0d0ec3c5f95c3ef42acd972d14c05277dd2ad7826873bff92acc7aa6538a9310bf"

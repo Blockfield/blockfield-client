@@ -1,0 +1,477 @@
+"""Versioned pre-push hook wiring."""
+
+import importlib.util
+import os
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+spec = importlib.util.spec_from_file_location(
+    "client_quality", ROOT / "scripts/quality.py"
+)
+client_quality = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(client_quality)
+
+
+class PrePushHook(unittest.TestCase):
+    def test_hook_runs_lint_and_format_check_without_gradle(self):
+        hook = ROOT / ".githooks" / "pre-push"
+        self.assertTrue(hook.is_file())
+        self.assertTrue(hook.stat().st_mode & 0o111)
+        text = hook.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("#!/bin/sh"))
+        self.assertIn("just lint", text)
+        self.assertIn("just format-check", text)
+        commands = [
+            line for line in text.splitlines() if line and not line.startswith("#")
+        ]
+        self.assertFalse(any("gradle" in line.lower() for line in commands))
+
+    def test_setup_wires_versioned_hooks(self):
+        with tempfile.TemporaryDirectory(prefix="bf hooks ") as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "--quiet", tmp], check=True)
+            (root / ".githooks").mkdir()
+            client_quality.wire_hooks(root)
+            probe = subprocess.run(
+                ["git", "config", "core.hooksPath"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(probe.stdout.strip(), ".githooks")
+
+
+PUBLISHED_ID = "endpoint blockfield-proxy-abc123 !"
+NEW_ID = "endpoint blockfield-proxy-def456 !"
+
+
+def _git(root, *args, **env):
+    full_env = dict(os.environ)
+    full_env.update(
+        {
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@t",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@t",
+        }
+    )
+    full_env.update(env)
+    return subprocess.run(
+        ["git", *args],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=full_env,
+    )
+
+
+def _commit(root, name, files):
+    for rel, content in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", name)
+    return _git(root, "rev-parse", "HEAD").stdout.strip()
+
+
+class PrePushMergeScan(unittest.TestCase):
+    """pre-push must not re-flag identifiers already published via a merge's
+    second parent, but must flag new identifiers from resolutions/side commits."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="bf prepush ")
+        self.root = Path(self.tmp.name)
+        _git(self.root, "init", "-qb", "main", ".")
+        dest = self.root / ".githooks"
+        dest.mkdir()
+        (dest / "pre-push").write_bytes((ROOT / ".githooks" / "pre-push").read_bytes())
+        (dest / "pre-push").chmod(0o755)
+        # Stub the two external gates: `just` and the pinned gitleaks binary.
+        bindir = self.root / "bin"
+        bindir.mkdir()
+        just = bindir / "just"
+        just.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        just.chmod(0o755)
+        cache = self.root / ".cache" / "quality" / "gitleaks-8.24.3"
+        cache.mkdir(parents=True)
+        fake = cache / "gitleaks"
+        fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        fake.chmod(0o755)
+        self.env = dict(
+            os.environ,
+            PATH=f"{bindir}{os.pathsep}{os.environ['PATH']}",
+            # Hermetic identity: `git merge` needs a committer even for
+            # --no-commit, and hostname-based fallback fails on some hosts.
+            GIT_AUTHOR_NAME="t",
+            GIT_AUTHOR_EMAIL="t@t",
+            GIT_COMMITTER_NAME="t",
+            GIT_COMMITTER_EMAIL="t@t",
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_hook(self, local_sha, remote_sha):
+        line = f"refs/heads/main {local_sha} refs/heads/main {remote_sha}\n"
+        return subprocess.run(
+            ["sh", ".githooks/pre-push"],
+            cwd=self.root,
+            input=line,
+            capture_output=True,
+            text=True,
+            env=self.env,
+        )
+
+    ZERO = "0000000000000000000000000000000000000000"
+
+    def run_hook_new_branch(self, local_sha, remote="origin"):
+        line = f"refs/heads/feature {local_sha} refs/heads/feature {self.ZERO}\n"
+        return subprocess.run(
+            ["sh", ".githooks/pre-push", remote, f"/tmp/fake-{remote}"],
+            cwd=self.root,
+            input=line,
+            capture_output=True,
+            text=True,
+            env=self.env,
+        )
+
+    def _set_origin_main(self, sha):
+        _git(self.root, "update-ref", "refs/remotes/origin/main", sha)
+        _git(
+            self.root,
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/main",
+        )
+
+    def test_new_branch_merge_resolution_with_new_id_is_blocked(self):
+        _commit(self.root, "base", {"h.txt": "line1\nline2\nline3\n"})
+        base = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        self._set_origin_main(base)
+        _git(self.root, "checkout", "-qb", "side")
+        _commit(self.root, "side", {"h.txt": "line1\nSIDE\nline3\n"})
+        _git(self.root, "checkout", "-q", "main")
+        _commit(self.root, "mainwork", {"h.txt": "line1\nMAIN\nline3\n"})
+        subprocess.run(
+            ["git", "merge", "side", "--no-commit", "-q"],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            env=self.env,
+        )
+        (self.root / "h.txt").write_text(
+            f"line1\nMAIN\nline3\n{NEW_ID}\n", encoding="utf-8"
+        )
+        _git(self.root, "add", ".")
+        _git(self.root, "commit", "-qm", "merge-resolve-newid")
+        local = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        probe = self.run_hook_new_branch(local)
+        self.assertEqual(probe.returncode, 1)
+        self.assertIn("infrastructure identifier", probe.stderr)
+
+    def test_new_branch_merge_of_published_main_is_clean(self):
+        _commit(
+            self.root,
+            "base",
+            {"id.txt": PUBLISHED_ID + "\n", "h.txt": "line1\nBASE\nline3\n"},
+        )
+        base = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        self._set_origin_main(base)
+        _git(self.root, "checkout", "-qb", "feature")
+        _commit(self.root, "sidework", {"g.txt": "feat\n"})
+        _git(self.root, "checkout", "-q", "main")
+        _commit(self.root, "mainwork", {"m.txt": "work\n"})
+        main_tip = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        _git(self.root, "update-ref", "refs/remotes/origin/main", main_tip)
+        _git(self.root, "checkout", "-q", "feature")
+        _git(self.root, "merge", "-q", "main", "-m", "merge-main")
+        local = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        probe = self.run_hook_new_branch(local)
+        self.assertEqual(probe.returncode, 0, f"hook blocked push:\n{probe.stderr}")
+
+    def test_new_branch_uses_pushed_remote_default_branch(self):
+        _commit(self.root, "base", {"h.txt": "line1\n"})
+        base = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        self._set_origin_main(base)
+        _git(self.root, "checkout", "-qb", "upstream-main")
+        upstream_tip = _commit(self.root, "publish", {"id.txt": PUBLISHED_ID + "\n"})
+        _git(self.root, "update-ref", "refs/remotes/upstream/main", upstream_tip)
+        _git(
+            self.root,
+            "symbolic-ref",
+            "refs/remotes/upstream/HEAD",
+            "refs/remotes/upstream/main",
+        )
+        _git(self.root, "checkout", "-qb", "feature", base)
+        _git(self.root, "merge", "-q", "upstream-main", "-m", "merge-upstream")
+        local = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        probe = self.run_hook_new_branch(local, remote="upstream")
+        self.assertEqual(probe.returncode, 0, f"hook blocked push:\n{probe.stderr}")
+
+    def test_new_branch_tip_published_after_fork_is_clean(self):
+        _commit(self.root, "base", {"h.txt": "line1\n"})
+        base = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        self._set_origin_main(base)
+        _git(self.root, "checkout", "-qb", "feature", base)
+        _commit(self.root, "side", {"id.txt": PUBLISHED_ID + "\n"})
+        _git(self.root, "checkout", "-q", "main")
+        main_tip = _commit(self.root, "publish", {"id.txt": PUBLISHED_ID + "\n"})
+        _git(self.root, "update-ref", "refs/remotes/origin/main", main_tip)
+        _git(
+            self.root,
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/main",
+        )
+        _git(self.root, "checkout", "-q", "feature")
+        local = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        probe = self.run_hook_new_branch(local)
+        self.assertEqual(probe.returncode, 0, f"hook blocked push:\n{probe.stderr}")
+
+    def test_new_branch_without_remote_default_still_blocks_new_id(self):
+        _commit(self.root, "base", {"h.txt": "line1\n"})
+        local = _commit(self.root, "side", {"s.txt": NEW_ID + "\n"})
+        probe = self.run_hook_new_branch(local, remote="fresh")
+        self.assertEqual(probe.returncode, 1)
+        self.assertIn("infrastructure identifier", probe.stderr)
+
+    def test_merge_of_main_with_published_id_is_clean(self):
+        _commit(self.root, "base", {"f.txt": "base\n"})
+        _git(self.root, "checkout", "-qb", "feature")
+        plain = _commit(self.root, "side", {"g.txt": "feat\n"})
+        _git(self.root, "checkout", "-q", "main")
+        _commit(self.root, "publish", {"id.txt": PUBLISHED_ID + "\n"})
+        remote = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        _git(self.root, "checkout", "-q", "feature")
+        _git(self.root, "merge", "-q", "main", "-m", "merge-main")
+        local = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        self.assertNotEqual(plain, remote)
+        probe = self.run_hook(local, remote)
+        self.assertEqual(probe.returncode, 0, f"hook blocked push:\n{probe.stderr}")
+
+    def test_resolution_with_new_id_is_blocked(self):
+        _commit(self.root, "base", {"h.txt": "line1\nline2\nline3\n"})
+        _git(self.root, "checkout", "-qb", "side")
+        _commit(self.root, "side", {"h.txt": "line1\nSIDE\nline3\n"})
+        _git(self.root, "checkout", "-q", "main")
+        remote = _commit(self.root, "main", {"h.txt": "line1\nMAIN\nline3\n"})
+        subprocess.run(
+            ["git", "merge", "side", "--no-commit", "-q"],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            env=self.env,
+        )
+        (self.root / "h.txt").write_text(
+            f"line1\nMAIN\nline3\n{NEW_ID}\n", encoding="utf-8"
+        )
+        _git(self.root, "add", ".")
+        _git(self.root, "commit", "-qm", "merge-resolve-newid")
+        local = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        probe = self.run_hook(local, remote)
+        self.assertEqual(probe.returncode, 1)
+        self.assertIn("infrastructure identifier", probe.stderr)
+
+    def test_resolution_keeping_remote_id_is_clean(self):
+        _commit(
+            self.root,
+            "base",
+            {"id.txt": PUBLISHED_ID + "\n", "h.txt": "line1\nBASE\nline3\n"},
+        )
+        _git(self.root, "checkout", "-qb", "side")
+        _commit(
+            self.root,
+            "sidework",
+            {"id.txt": "endpoint local-dev !\n", "h.txt": "line1\nSIDE\nline3\n"},
+        )
+        _git(self.root, "checkout", "-q", "main")
+        remote = _commit(self.root, "mainwork", {"h.txt": "line1\nMAIN\nline3\n"})
+        subprocess.run(
+            ["git", "merge", "side", "--no-commit", "-q"],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            env=self.env,
+        )
+        (self.root / "id.txt").write_text(PUBLISHED_ID + "\n", encoding="utf-8")
+        (self.root / "h.txt").write_text("line1\nMAIN\nline3\n", encoding="utf-8")
+        _git(self.root, "add", ".")
+        _git(self.root, "commit", "-qm", "merge-keep-remote")
+        local = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        probe = self.run_hook(local, remote)
+        self.assertEqual(probe.returncode, 0, f"hook blocked push:\n{probe.stderr}")
+
+    def test_octopus_merge_resolution_with_new_id_is_blocked(self):
+        _commit(self.root, "base", {"f.txt": "base\n"})
+        _git(self.root, "checkout", "-qb", "b1")
+        _commit(self.root, "one", {"1.txt": "one\n"})
+        _git(self.root, "checkout", "-qb", "b2", "main")
+        _commit(self.root, "two", {"2.txt": "two\n"})
+        _git(self.root, "checkout", "-q", "main")
+        remote = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        b1 = _git(self.root, "rev-parse", "b1").stdout.strip()
+        b2 = _git(self.root, "rev-parse", "b2").stdout.strip()
+        # Octopus merges cannot hold conflict resolutions, so craft the
+        # result tree: main tree plus a file with a new identifier.
+        (self.root / "new.txt").write_text(NEW_ID + "\n", encoding="utf-8")
+        _git(self.root, "add", ".")
+        tree = _git(self.root, "write-tree").stdout.strip()
+        _git(self.root, "checkout", "-q", "--", ".")
+        (self.root / "new.txt").unlink()
+        local = _git(
+            self.root,
+            "commit-tree",
+            tree,
+            "-p",
+            remote,
+            "-p",
+            b1,
+            "-p",
+            b2,
+            "-m",
+            "octopus-resolve-newid",
+        ).stdout.strip()
+        probe = self.run_hook(local, remote)
+        self.assertEqual(probe.returncode, 1)
+        self.assertIn("infrastructure identifier", probe.stderr)
+
+    def test_octopus_merge_without_new_id_is_clean(self):
+        _commit(self.root, "base", {"f.txt": "base\n"})
+        _git(self.root, "checkout", "-qb", "b1")
+        _commit(self.root, "one", {"1.txt": "one\n"})
+        _git(self.root, "checkout", "-qb", "b2", "main")
+        _commit(self.root, "two", {"2.txt": "two\n"})
+        _git(self.root, "checkout", "-q", "main")
+        _commit(self.root, "main-work", {"m.txt": "work\n"})
+        remote = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        _git(self.root, "merge", "b1", "b2", "-m", "octopus", "-q")
+        local = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        parents = _git(self.root, "rev-list", "--parents", "-n", "1", local)
+        self.assertGreaterEqual(len(parents.stdout.split()), 4)
+        probe = self.run_hook(local, remote)
+        self.assertEqual(probe.returncode, 0, f"hook blocked push:\n{probe.stderr}")
+
+    def test_unreadable_diff_fails_closed(self):
+        import shutil
+
+        real_git = shutil.which("git")
+        wrapper = self.root / "bin" / "git"
+        wrapper.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = "log" ] || [ "$1" = "diff" ]; then exit 129; fi\n'
+            f'exec "{real_git}" "$@"\n',
+            encoding="utf-8",
+        )
+        wrapper.chmod(0o755)
+        _commit(self.root, "base", {"f.txt": "base\n"})
+        remote = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        _commit(self.root, "plain", {"g.txt": "feat\n"})
+        local = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        probe = self.run_hook(local, remote)
+        self.assertEqual(probe.returncode, 1)
+        self.assertIn("cannot inspect", probe.stderr)
+
+    def test_octopus_scan_skips_tree_search_without_identifiers(self):
+        import shutil
+
+        real_git = shutil.which("git")
+        count_file = self.root / "grep-calls"
+        count_file.write_text("", encoding="utf-8")
+        wrapper = self.root / "bin" / "git"
+        wrapper.write_text(
+            "#!/bin/sh\n"
+            '[ "$1" = "grep" ] && echo x >> "$COUNT_FILE"\n'
+            f'exec "{real_git}" "$@"\n',
+            encoding="utf-8",
+        )
+        wrapper.chmod(0o755)
+        self.env = dict(self.env, COUNT_FILE=str(count_file))
+        _commit(self.root, "base", {"f.txt": "base\n"})
+        _git(self.root, "checkout", "-qb", "b1")
+        big = "".join(f"data line {i}\n" for i in range(2000))
+        _commit(self.root, "one", {"1.txt": big})
+        _git(self.root, "checkout", "-qb", "b2", "main")
+        _commit(self.root, "two", {"2.txt": big})
+        _git(self.root, "checkout", "-q", "main")
+        _commit(self.root, "main-work", {"m.txt": "work\n"})
+        remote = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        _git(self.root, "merge", "b1", "b2", "-m", "octopus", "-q")
+        local = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        probe = self.run_hook(local, remote)
+        self.assertEqual(probe.returncode, 0)
+        calls = len(count_file.read_text(encoding="utf-8"))
+        self.assertEqual(calls, 0, f"hook ran {calls} parent-tree searches")
+
+    def test_octopus_reviving_removed_id_is_blocked(self):
+        _commit(self.root, "base", {"id.txt": PUBLISHED_ID + "\n"})
+        _git(self.root, "checkout", "-qb", "old")
+        old = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        _git(self.root, "checkout", "-q", "main")
+        lines = (self.root / "id.txt").read_text(encoding="utf-8").splitlines()
+        kept = (
+            "\n".join(line for line in lines if PUBLISHED_ID not in line) or "clean\n"
+        )
+        (self.root / "id.txt").write_text(kept + "\n", encoding="utf-8")
+        _git(self.root, "add", ".")
+        _git(self.root, "commit", "-qm", "remove-id")
+        remote = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        _git(self.root, "checkout", "-qb", "b2", "main")
+        _commit(self.root, "two", {"2.txt": "two\n"})
+        b2 = _git(self.root, "rev-parse", "b2").stdout.strip()
+        # Octopus result tree revives the removed identifier verbatim from
+        # the excluded old history: invisible to the per-commit walk, but
+        # the tip diff against the remote shows it as added.
+        (self.root / "id.txt").write_text(PUBLISHED_ID + "\n", encoding="utf-8")
+        _git(self.root, "add", ".")
+        tree = _git(self.root, "write-tree").stdout.strip()
+        _git(self.root, "checkout", "-q", "--", ".")
+        local = _git(
+            self.root,
+            "commit-tree",
+            tree,
+            "-p",
+            remote,
+            "-p",
+            old,
+            "-p",
+            b2,
+            "-m",
+            "octopus-revive-removed",
+        ).stdout.strip()
+        probe = self.run_hook(local, remote)
+        self.assertEqual(probe.returncode, 1)
+        self.assertIn("infrastructure identifier", probe.stderr)
+
+    def test_side_commit_with_new_id_is_blocked(self):
+        _commit(self.root, "base", {"f.txt": "base\n"})
+        _git(self.root, "checkout", "-qb", "feature")
+        remote = _commit(self.root, "side-plain", {"g.txt": "feat\n"})
+        _commit(self.root, "side-id", {"s.txt": NEW_ID + "\n"})
+        _git(self.root, "checkout", "-q", "main")
+        _commit(self.root, "main-work", {"m.txt": "work\n"})
+        main_tip = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        _git(self.root, "checkout", "-q", "feature")
+        _git(self.root, "merge", "-q", main_tip, "-m", "merge-main")
+        local = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        probe = self.run_hook(local, remote)
+        self.assertEqual(probe.returncode, 1)
+        self.assertIn("infrastructure identifier", probe.stderr)
+
+    def test_added_line_starting_with_plus_is_scanned(self):
+        # Review: a filter that drops "++..." lines also dropped added lines that start with "+".
+        remote = _commit(self.root, "base", {"f.txt": "base\n"})
+        local = _commit(self.root, "plus", {"p.txt": "+" + NEW_ID + "\n"})
+        probe = self.run_hook(local, remote)
+        self.assertEqual(probe.returncode, 1)
+        self.assertIn("infrastructure identifier", probe.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

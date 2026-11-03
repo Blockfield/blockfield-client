@@ -1,0 +1,8 @@
+name = "Porting Lib OBJ Loader"
+filename = "porting_lib_obj_loader-3.1.0-beta.90+1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/import-2.53.0/porting_lib_obj_loader-3.1.0-beta.90%2B1.21.1.jar"
+hash-format = "sha512"
+hash = "aca7d3b56aa50b1dfc5ca9540d94f0ff5c213f1dc60cad865e7ec20621c5871186e881c90fe47f030c64cfdec107ff395333bb0123800a5c1d21d1c04cecdf76"

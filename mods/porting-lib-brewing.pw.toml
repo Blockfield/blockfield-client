@@ -1,0 +1,8 @@
+name = "Porting Lib Brewing"
+filename = "porting_lib_brewing-3.1.0-beta.90+1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/import-2.53.0/porting_lib_brewing-3.1.0-beta.90%2B1.21.1.jar"
+hash-format = "sha512"
+hash = "716df591c30b3d73efa7ebca64313a5595378caf201728e2bd56c733c18ffb67bd45e8ba4aa1c8658c3f896c2f7aad8ddc7f7fe86f60479523ff72ca63e64bc6"

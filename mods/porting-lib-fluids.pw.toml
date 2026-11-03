@@ -1,0 +1,8 @@
+name = "Porting Lib Fluids"
+filename = "porting_lib_fluids-3.1.0-beta.90+1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/import-2.53.0/porting_lib_fluids-3.1.0-beta.90%2B1.21.1.jar"
+hash-format = "sha512"
+hash = "afcfd018627ed41c52aef125974b13006e28482e2103e1e8ac7f80a882e7d442cd704b8c578c41503ceff170a1d4e954b97130a78420b088bdf08d0d285afb36"

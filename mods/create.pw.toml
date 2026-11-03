@@ -1,0 +1,8 @@
+name = "Create (Blockfield Fabric port)"
+filename = "create-fabric-6.0.0.0+mc1.21.1-bf6.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/create-fabric/releases/download/bf6/create-fabric-6.0.0.0+mc1.21.1-bf6.jar"
+hash-format = "sha512"
+hash = "05682a496d85d4143b04376c9436fbabd85b0782de649ae4416fc8793322d2b8260b7a598ad816fd208ef437acafb18f0bdb70ca2e27d07f8615b063cb3ee825"

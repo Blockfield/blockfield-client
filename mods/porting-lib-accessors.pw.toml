@@ -1,0 +1,8 @@
+name = "Porting Lib Accessors"
+filename = "porting_lib_accessors-3.1.0-beta.54+1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/import-2.53.0/porting_lib_accessors-3.1.0-beta.54%2B1.21.1.jar"
+hash-format = "sha512"
+hash = "b98e38d38a955c69d998285017fc68b26ba1e1303bfd75d86c3734a755bee5931a505b42631f766923eda862530cea718ffb22f22bb44820b775c6029b274917"

@@ -1,0 +1,40 @@
+name: 💡 Предложение
+description: Идея по сборке — новый мод, настройка, баланс или удобство
+title: "[Предложение]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую проблему решает
+      description: Что сейчас неудобно или чего не хватает
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Предложение
+      description: Как это должно работать. Если речь о моде — ссылка на Modrinth или CurseForge
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Альтернативы
+      description: Другие варианты, которые вы рассматривали
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Дополнительно
+      description: Скриншоты, видео, примеры из других проектов
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Проверка
+      options:
+        - label: Я поискал(а) похожие [issues](https://github.com/Blockfield/blockfield-releases/issues?q=is%3Aissue) и не нашёл(ла) дубликат
+          required: true

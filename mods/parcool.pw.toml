@@ -1,0 +1,8 @@
+name = "ParCool! (Blockfield Fabric port)"
+filename = "ParCool-1.21.1-3.4.3.3-fabric-bf8.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/parcool-fabric/releases/download/bf8/ParCool-1.21.1-3.4.3.3-fabric-bf8.jar"
+hash-format = "sha512"
+hash = "4ef4d73b2ecd918b7ad795332999f30eb9c5ef4b59677cd7f9d7aba7f43cb3517e6ea7851129c718bc5c9a2076425832791c3ba2dcf145b63e6e28f4ed0af1b8"

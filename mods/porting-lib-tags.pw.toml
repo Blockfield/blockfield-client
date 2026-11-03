@@ -1,0 +1,8 @@
+name = "Porting Lib Tags"
+filename = "porting_lib_tags-3.1.0-beta.90+1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/import-2.53.0/porting_lib_tags-3.1.0-beta.90%2B1.21.1.jar"
+hash-format = "sha512"
+hash = "9a722523f43b780cefc1dd7fa98a43790f6215c3c58785108e7c6e905a0943d3753a9c0d87b07abaa2d0b21695497efe804170ebae15b58373bc83b92ae9c624"

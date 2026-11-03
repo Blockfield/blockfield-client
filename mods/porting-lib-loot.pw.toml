@@ -1,0 +1,8 @@
+name = "Porting Lib Loot"
+filename = "porting_lib_loot-3.1.0-beta.90+1.21.1-bf1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/bf1/porting_lib_loot-3.1.0-beta.90%2B1.21.1-bf1.jar"
+hash-format = "sha512"
+hash = "f065767babb422a2a21cdeaa777efcecf5b2384e187e9df22354e48f42f0e8c2aaad5ad3a52ead79e4bf4df63e7c47cde5a4884414dd4df5c94571fa5d24ca8f"

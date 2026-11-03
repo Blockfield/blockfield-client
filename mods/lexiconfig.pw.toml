@@ -1,0 +1,13 @@
+name = "Lexiconfig"
+filename = "lexiconfig-fabric-1.4.21-novel.jar"
+side = "client"
+
+[download]
+url = "https://cdn.modrinth.com/data/D157Rgyf/versions/J4CQpTl1/lexiconfig-fabric-1.4.21-novel.jar"
+hash-format = "sha512"
+hash = "5abd72d2780d145aafd059cdb2d1c47db1e0b11924731dee5b9cc2a7ba6ced1dcb091a706980431bdeb8e4ab24a064e43c9027a34ca2840d5e49f358b04d8d98"
+
+[update]
+[update.modrinth]
+mod-id = "D157Rgyf"
+version = "J4CQpTl1"

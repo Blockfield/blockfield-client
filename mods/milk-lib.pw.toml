@@ -1,0 +1,13 @@
+name = "Milk Lib"
+filename = "milk-lib-1.1.0.jar"
+side = "both"
+
+[download]
+url = "https://cdn.modrinth.com/data/Tu5LjQoE/versions/jIenyzWe/milk-lib-1.1.0.jar"
+hash-format = "sha512"
+hash = "ff86e4e4ac4e42ccfbbadff9a2681e80bcda4b2c3875589d729f4f68f520fc57a27b325210b2597b091b1761b9254a913dff8c14466ce5aac549deb77e8d3caa"
+
+[update]
+[update.modrinth]
+mod-id = "Tu5LjQoE"
+version = "jIenyzWe"

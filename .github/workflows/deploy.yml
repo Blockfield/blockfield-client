@@ -1,0 +1,15 @@
+name: Deploy client (stub)
+# Sterile public export: production deployment stays private until it moves
+# server-side (Blockfield/server#197); this stub keeps the client.yml
+# reusable-workflow call valid so the exported tree lints self-contained.
+on:
+  workflow_call:
+    inputs:
+      tag: { required: true, type: string }
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: "echo deploy stub, no-op until Blockfield/server#197"

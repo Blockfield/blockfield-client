@@ -1,0 +1,9 @@
+name = "blockfield-music v7"
+filename = "blockfield-music-7.jar"
+side = "client"
+
+[download]
+url = "https://github.com/Blockfield/blockfield-music/releases/download/music-v7/blockfield-music-7.jar"
+r2-url = "s3://blockfield-assets/music/music-v7/blockfield-music-7.jar"
+hash-format = "sha1"
+hash = "9bbe3557d13994cb356cad77dd372e2dfa5d7d61"

@@ -1,0 +1,8 @@
+name = "Porting Lib Client Events"
+filename = "porting_lib_client_events-3.1.0-beta.90+1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/import-2.53.0/porting_lib_client_events-3.1.0-beta.90%2B1.21.1.jar"
+hash-format = "sha512"
+hash = "94b045ca601d2fb07e9d84b4888ab7f349bfeed7916c3b5f7d6a0461566ad5de1d9a91c059e32d6df2c127485d85dbd96e23a241d6c9cbbc3781c5cb26bb99fc"

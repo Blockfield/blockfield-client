@@ -1,0 +1,8 @@
+name = "BSL_v10.0"
+filename = "BSL_v10.0.zip"
+side = "client"
+
+[download]
+url = "https://cdn.modrinth.com/data/Q1vvjJYV/versions/jRn8y2VF/BSL_v10.0.zip"
+hash-format = "sha256"
+hash = "b6e79a4f5746bd0b2bd8d54bb4c430539e7e747e8679ac985bc07368422e4e09"

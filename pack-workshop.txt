@@ -1,0 +1,87 @@
+# Workshop client pack: building mods only (owner decision 2026-10-31: Workshop runs
+# only building mods — blocks, decor, WorldEdit-like tools; no combat mods).
+# build-client.py --variant workshop keeps exactly [mods] and drops [drop-config]
+# defaults. Everything else (pack.toml versions, index hashes) is shared with game.
+# u3 correction: +10 porting-lib transitives the kept modules hard-require
+# (item-abilities, gui-utils, registry, loot, mixin-extensions, data,
+# model-loader, fluids, gametest, render-types); -owo-lib/-yacl/-geckolib
+# (no requirer, no class refs in any kept jar — see wsplit-u3).
+[mods]
+architectury-api.pw.toml
+backport-copper-age.pw.toml
+blockfield-decor.pw.toml
+blockfield-music.pw.toml
+cloth-config.pw.toml
+cozy-home.pw.toml
+create.pw.toml
+creativecore.pw.toml
+dynamic-fps.pw.toml
+entityculling.pw.toml
+fabric-api.pw.toml
+fabric-language-kotlin.pw.toml
+ferrite-core.pw.toml
+forge-config-api-port.pw.toml
+fusion-connected-textures.pw.toml
+immediatelyfast.pw.toml
+iris.pw.toml
+kiwi.pw.toml
+krypton.pw.toml
+lexiconfig.pw.toml
+lithium.pw.toml
+milk-lib.pw.toml
+modernfix.pw.toml
+passable-foliage.pw.toml
+platform.pw.toml
+porting-lib-accessors.pw.toml
+porting-lib-base.pw.toml
+porting-lib-blocks.pw.toml
+porting-lib-client-events.pw.toml
+porting-lib-common.pw.toml
+porting-lib-config.pw.toml
+porting-lib-core.pw.toml
+porting-lib-data.pw.toml
+porting-lib-entity.pw.toml
+porting-lib-fluids.pw.toml
+porting-lib-gametest.pw.toml
+porting-lib-gui-utils.pw.toml
+porting-lib-item-abilities.pw.toml
+porting-lib-items.pw.toml
+porting-lib-lazy-registration.pw.toml
+porting-lib-level-events.pw.toml
+porting-lib-loot.pw.toml
+porting-lib-mixin-extensions.pw.toml
+porting-lib-model-loader.pw.toml
+porting-lib-models.pw.toml
+porting-lib-obj-loader.pw.toml
+porting-lib-registry.pw.toml
+porting-lib-render-types.pw.toml
+porting-lib-resources.pw.toml
+porting-lib-tags.pw.toml
+porting-lib-transfer.pw.toml
+raknetify.pw.toml
+rechiseled.pw.toml
+sodium.pw.toml
+supermartijn642s-config-lib.pw.toml
+supermartijn642s-core-lib.pw.toml
+vanillabackport.pw.toml
+worldedit.pw.toml
+yuushya-townscape.pw.toml
+[drop-config]
+config/blockfield-client.properties
+config/cameraoverhaul.toml
+config/damageindicator-client.toml
+config/enhancedvisuals.json
+config/enhancedvisuals-client.json
+config/lrtactical-client.toml
+config/lrtactical-common.toml
+config/parcool-client.toml
+config/pingwheel.json
+config/pingwheel.server.json
+config/sound_physics_remastered/
+config/superbwarfare-client.toml
+config/superbwarfare-common.toml
+config/tacz-client.toml
+config/tacz-common.toml
+config/tacztweaks.json
+config/voicechat-client.toml
+config/voicechat/

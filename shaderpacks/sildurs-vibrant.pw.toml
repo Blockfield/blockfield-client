@@ -1,0 +1,8 @@
+name = "Sildur's Vibrant Shaders v1.541 Extreme"
+filename = "Sildur's Vibrant Shaders v1.541 Extreme.zip"
+side = "client"
+
+[download]
+url = "https://mediafilez.forgecdn.net/files/6904/449/Sildur%27s%20Vibrant%20Shaders%20v1.541%20Extreme.zip"
+hash-format = "sha256"
+hash = "85ba795891d5b0d2aa8e3bc61bc2aa78ca870810b417cafdac859a55e2ca3c42"

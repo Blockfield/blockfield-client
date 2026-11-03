@@ -1,0 +1,8 @@
+name = "Raknetify"
+filename = "raknetify-fabric-0.1.0+alpha.5.1-bf3-all.jar"
+side = "client"
+
+[download]
+url = "https://github.com/Blockfield/raknetify/releases/download/bf3/raknetify-fabric-0.1.0+alpha.5.1-bf3-all.jar"
+hash-format = "sha512"
+hash = "0448dc7581463587f5d51fbfcaf7a9f970b55b7d234b85116c278278533dbe8d81e99ba687f3bee20001e4f533377c81f79bc78710f0e0ab4ee5c4e79cc87875"

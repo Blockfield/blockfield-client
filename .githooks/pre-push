@@ -1,0 +1,183 @@
+#!/bin/sh
+# Versioned pre-push gate: the fast checks CI runs, without Gradle.
+# Installed via `just setup` (git core.hooksPath). Bypass: git push --no-verify.
+set -eu
+cd "$(dirname "$0")/.."
+command -v just >/dev/null 2>&1 || {
+  echo "pre-push: 'just' not found on PATH; run just setup first" >&2
+  exit 1
+}
+just lint
+just format-check
+
+# Pinned secret scan (owner decision 2026-10-31): gitleaks 8.24.3 over exactly
+# what this push carries, plus the infrastructure-identifier shapes from the
+# public audit (app names with suffixes, R2 endpoint with account ID).
+# A checksum mismatch fails closed. Bypass: git push --no-verify.
+GITLEAKS_VERSION="8.24.3"
+GITLEAKS_CACHE=".cache/quality/gitleaks-$GITLEAKS_VERSION"
+GITLEAKS_BIN="$GITLEAKS_CACHE/gitleaks"
+# Read the push lines FIRST: gitleaks needs the original stdin, and later
+# commands must not consume it. (<local ref> <local sha> <remote ref> <remote sha>)
+if [ -t 0 ]; then
+  PUSH_INFO=""
+else
+  PUSH_INFO=$(cat)
+fi
+if [ ! -x "$GITLEAKS_BIN" ]; then
+  case "$(uname -s)/$(uname -m)" in
+    Linux/x86_64)
+      GITLEAKS_ASSET="gitleaks_8.24.3_linux_x64.tar.gz"
+      GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
+      ;;
+    Linux/aarch64)
+      GITLEAKS_ASSET="gitleaks_8.24.3_linux_arm64.tar.gz"
+      GITLEAKS_SHA256="5f2edbe1f49f7b920f9e06e90759947d3c5dfc16f752fb93aaafc17e9d14cf07"
+      ;;
+    Darwin/x86_64)
+      GITLEAKS_ASSET="gitleaks_8.24.3_darwin_x64.tar.gz"
+      GITLEAKS_SHA256="41c44ae8ad1d6eef57d4526ad0fd67d8129eee9a856f55c2b3b9395fd3d9ec0f"
+      ;;
+    Darwin/arm64)
+      GITLEAKS_ASSET="gitleaks_8.24.3_darwin_arm64.tar.gz"
+      GITLEAKS_SHA256="b90f13bb8c90ab72083d9b0c842e39dafb82c0e5c3f872f407366b7a58909013"
+      ;;
+    *)
+      echo "pre-push: no pinned gitleaks asset for $(uname -s)/$(uname -m); refusing push (bypass: --no-verify)" >&2
+      exit 1
+      ;;
+  esac
+  echo "pre-push: fetching pinned gitleaks $GITLEAKS_VERSION ..." >&2
+  mkdir -p "$GITLEAKS_CACHE"
+  GITLEAKS_TMP="$GITLEAKS_CACHE/$GITLEAKS_ASSET"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "$GITLEAKS_TMP" "https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_VERSION/$GITLEAKS_ASSET"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$GITLEAKS_TMP" "https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_VERSION/$GITLEAKS_ASSET"
+  else
+    echo "pre-push: need curl or wget to fetch gitleaks" >&2
+    exit 1
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    echo "$GITLEAKS_SHA256  $GITLEAKS_TMP" | sha256sum -c - >/dev/null || { echo "pre-push: gitleaks checksum mismatch; refusing push" >&2; exit 1; }
+  else
+    echo "$GITLEAKS_SHA256  $GITLEAKS_TMP" | shasum -a 256 -c - >/dev/null || { echo "pre-push: gitleaks checksum mismatch; refusing push" >&2; exit 1; }
+  fi
+  tar -xzf "$GITLEAKS_TMP" -C "$GITLEAKS_CACHE" gitleaks
+  chmod +x "$GITLEAKS_BIN"
+  rm -f "$GITLEAKS_TMP"
+fi
+# A tracked or inherited config must never weaken the scan: default rules only.
+# Each pushed ref is scanned with detect over its exact commit range.
+# Identifier scan (coordinator decision): added lines of every non-merge
+# commit in the pushed range plus added lines of the tip diff (merge-base
+# vs local tip). The tip diff covers every merge resolution, octopus merge
+# and line revived from old history; lines already in the merge-base tree
+# or in the pushed remote's default-branch tip tree are published and
+# skipped. New branch: base is the merge-base with the pushed remote's
+# default branch (<remote>/HEAD, else <remote>/main); without either ref,
+# only history not on any remote ref is scanned, with no published tree.
+# Unreadable diff fails the push closed.
+# shortcut: an identifier added only inside a merge resolution and removed
+# again by a later commit in the same push is not caught; the sterile
+# export scan before any visibility flip is the final gate.
+ZERO="0000000000000000000000000000000000000000"
+SCAN_FAIL=""
+ID_HIT=""
+# Shared candidate check: $patch holds the candidate diff, $id_remote_tip
+# and $id_remote_tip2 the published trees whose lines are skipped
+# (lookup failure is new).
+id_hit() {
+  printf '%s\n' "$patch" | grep -E '^\+' | grep -vE '^\+\+\+ (b/|/dev/null)' | grep -E -e '[0-9a-f]{32}\.r2\.cloudflarestorage\.com' -e 'blockfield-(proxy|server|workshop|web|errors)-[a-z0-9]{6}([^a-z0-9]|$)' | sed 's/^\+//' | {
+    id_new=""
+    while IFS= read -r id_line; do
+      [ -n "$id_line" ] || continue
+      if [ -n "$id_remote_tip" ] && git grep -qF -e "$id_line" "$id_remote_tip" -- . 2>/dev/null; then
+        continue
+      fi
+      if [ -n "$id_remote_tip2" ] && git grep -qF -e "$id_line" "$id_remote_tip2" -- . 2>/dev/null; then
+        continue
+      fi
+      id_new="yes"
+      break
+    done
+    [ -n "$id_new" ]
+  }
+}
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [ -z "$local_sha" ] && continue
+  [ "$local_sha" = "$ZERO" ] && continue
+  local_commit=$(git rev-parse "$local_sha^{commit}" 2>/dev/null) || continue
+  id_remote_tip=""
+  id_remote_tip2=""
+  if [ "$remote_sha" = "$ZERO" ]; then
+    LOG_OPTS="$local_commit --not --remotes"
+    if ! patch_commits=$(git log -p --no-merges -U0 "$local_commit" --not --remotes 2>/dev/null); then
+      echo "pre-push: cannot inspect pushed commits; update git, then push again (bypass: --no-verify)" >&2
+      exit 1
+    fi
+    push_remote="${1:-origin}"
+    if default_ref=$(git symbolic-ref "refs/remotes/$push_remote/HEAD" 2>/dev/null); then
+      default_branch=${default_ref#refs/remotes/}
+    else
+      default_branch="$push_remote/main"
+    fi
+    if git rev-parse --verify "$default_branch^{commit}" >/dev/null 2>&1; then
+      default_tip=$(git rev-parse "$default_branch^{commit}")
+      if ! merge_base=$(git merge-base "$local_commit" "$default_branch" 2>/dev/null); then
+        echo "pre-push: cannot inspect pushed commits; update git, then push again (bypass: --no-verify)" >&2
+        exit 1
+      fi
+      if ! patch_tip=$(git diff -U0 "$merge_base" "$local_commit" 2>/dev/null); then
+        echo "pre-push: cannot inspect pushed commits; update git, then push again (bypass: --no-verify)" >&2
+        exit 1
+      fi
+      patch="$patch_commits
+$patch_tip"
+      id_remote_tip="$merge_base"
+      id_remote_tip2="$default_tip"
+    else
+      patch="$patch_commits"
+    fi
+  elif remote_commit=$(git rev-parse "$remote_sha^{commit}" 2>/dev/null); then
+    id_remote_tip="$remote_commit"
+    LOG_OPTS="$remote_commit..$local_commit"
+    if ! patch_commits=$(git log -p --no-merges -U0 "$remote_commit..$local_commit" 2>/dev/null); then
+      echo "pre-push: cannot inspect pushed commits; update git, then push again (bypass: --no-verify)" >&2
+      exit 1
+    fi
+    if ! patch_tip=$(git diff -U0 "$remote_commit" "$local_commit" 2>/dev/null); then
+      echo "pre-push: cannot inspect pushed commits; update git, then push again (bypass: --no-verify)" >&2
+      exit 1
+    fi
+    patch="$patch_commits
+$patch_tip"
+  else
+    # The remote tip is unknown locally (forced rewrite over unseen commits):
+    # the pushed range cannot be determined, so fail closed and ask for a
+    # fetch instead of scanning a guessed range.
+    echo "pre-push: remote tip $remote_sha unknown locally; git fetch, then push again (bypass: --no-verify)" >&2
+    exit 1
+  fi
+  # shellcheck disable=SC2086
+  if ! env -u GITLEAKS_CONFIG -u GITLEAKS_CONFIG_TOML "$GITLEAKS_BIN" detect --verbose --redact --log-opts="$LOG_OPTS"; then
+    SCAN_FAIL="yes"
+  fi
+  # Lines already in either published tree are not new: skip identifier
+  # candidates those trees already carry. A lookup failure fails closed:
+  # the line counts as new.
+  if id_hit; then
+    ID_HIT="yes"
+  fi
+done <<EOF
+$PUSH_INFO
+EOF
+if [ -n "$SCAN_FAIL" ]; then
+  echo "pre-push: gitleaks found secrets in the pushed range; refusing push" >&2
+  exit 1
+fi
+if [ -n "$ID_HIT" ]; then
+  echo "pre-push: new infrastructure identifier in the pushed range; refusing push" >&2
+  exit 1
+fi
+echo "pre-push: secret and identifier scan clean" >&2

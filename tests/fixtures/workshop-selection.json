@@ -1,0 +1,173 @@
+{
+  "stagedStatus": {
+    "deadline": null,
+    "desired": {
+      "candidate": null,
+      "modeId": null,
+      "profile": "workshop",
+      "release": "v2.68.0",
+      "session": "12345678-1234-4123-8123-123456789abc"
+    },
+    "error": null,
+    "errorMessage": null,
+    "game": {
+      "gate": "closed",
+      "phase": "UNAVAILABLE",
+      "release": null
+    },
+    "gate": "sleeping",
+    "message": "\u041d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u043f\u0440\u043e\u0432\u043e\u0434\u044f\u0442\u0441\u044f \u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u0438\u0435 \u0440\u0430\u0431\u043e\u0442\u044b. \u041e\u0431\u044b\u0447\u043d\u044b\u0439 \u0432\u0445\u043e\u0434 \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d.",
+    "operation": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    "phase": "sleeping",
+    "revision": 2,
+    "schema": 1,
+    "selection": {
+      "deferred": true,
+      "operation": "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      "revision": 2
+    },
+    "since": 1793310805082,
+    "updatedAt": 1793310805101
+  },
+  "stagedTarget": {
+    "clientContract": {
+      "compatibility": "5555555555555555555555555555555555555555555555555555555555555555",
+      "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+      "version": "v1.0.0"
+    },
+    "imageDigest": "ghcr.io/blockfield/blockfield-server@sha256:c2110e5cc972e3aac3f12c77c76c597190df46be6879bf6f4fc4ccedd59ed7ee",
+    "operation": "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    "previousTarget": {
+      "clientContract": {
+        "compatibility": "5555555555555555555555555555555555555555555555555555555555555555",
+        "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "version": "v1.0.0"
+      },
+      "imageDigest": "ghcr.io/blockfield/blockfield-server@sha256:fe695c3cf1b954b52bdc0dd1797de364f54048826ddee145d9f45d2e3cec86f2",
+      "release": "v2.68.0",
+      "revision": 1,
+      "schema": 1,
+      "serverRuntime": {
+        "fabric": "0.16.14",
+        "fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+        "minecraft": "1.21.1",
+        "serverDigest": "3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      "source": {
+        "buildJson": "{\"build\": \"v2.68.0\", \"client\": \"4444444444444444444444444444444444444444444444444444444444444444\", \"client_version\": \"v1.0.0\", \"compatibility\": \"5555555555555555555555555555555555555555555555555555555555555555\", \"fabric\": \"0.16.14\", \"minecraft\": \"1.21.1\", \"server_digest\": \"3333333333333333333333333333333333333333333333333333333333333333\", \"server_runtime\": \"2222222222222222222222222222222222222222222222222222222222222222\", \"sources\": {\"server\": \"1111111111111111111111111111111111111111\"}}",
+        "checksums": "c436631ca3e5a1b37fb9ff7b06426487f17d1cbb2c988362d8bf36071bf8f61d  build.json\n",
+        "commit": "1111111111111111111111111111111111111111",
+        "draft": false,
+        "imageConfig": "{\"config\": {\"Labels\": {\"org.opencontainers.image.source\": \"https://github.com/Blockfield/blockfield-server\", \"io.blockfield.server-digest\": \"v2.68.0\"}}}",
+        "imageManifest": "{\"schemaVersion\": 2, \"config\": {\"digest\": \"sha256:745e2dd742f356f66553bcaa9f49bd01d9df98c42bb62dd68cef7cbfda0f378e\"}, \"layers\": [{\"digest\": \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}",
+        "prerelease": false,
+        "provenance": {
+          "buildSha256": "c436631ca3e5a1b37fb9ff7b06426487f17d1cbb2c988362d8bf36071bf8f61d",
+          "imageDigest": "ghcr.io/blockfield/blockfield-server@sha256:fe695c3cf1b954b52bdc0dd1797de364f54048826ddee145d9f45d2e3cec86f2",
+          "sourceCommit": "1111111111111111111111111111111111111111"
+        },
+        "publishedAt": "2026-10-29T12:00:00Z",
+        "repository": "Blockfield/blockfield-server",
+        "tag": "v2.68.0"
+      }
+    },
+    "release": "v2.69.0",
+    "revision": 1,
+    "runtimeOperation": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    "schema": 1,
+    "selectionRevision": 2,
+    "serverRuntime": {
+      "fabric": "0.16.14",
+      "fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+      "minecraft": "1.21.1",
+      "serverDigest": "3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "source": {
+      "buildJson": "{\"build\": \"v2.69.0\", \"client\": \"4444444444444444444444444444444444444444444444444444444444444444\", \"client_version\": \"v1.0.0\", \"compatibility\": \"5555555555555555555555555555555555555555555555555555555555555555\", \"fabric\": \"0.16.14\", \"minecraft\": \"1.21.1\", \"server_digest\": \"3333333333333333333333333333333333333333333333333333333333333333\", \"server_runtime\": \"2222222222222222222222222222222222222222222222222222222222222222\", \"sources\": {\"server\": \"1111111111111111111111111111111111111111\"}}",
+      "checksums": "069a801f7bfdfb6ac567e7dd2e24b6ea16ff6047ee685fe89ccc505ae1b53666  build.json\n",
+      "commit": "1111111111111111111111111111111111111111",
+      "draft": false,
+      "imageConfig": "{\"config\": {\"Labels\": {\"org.opencontainers.image.source\": \"https://github.com/Blockfield/blockfield-server\", \"io.blockfield.server-digest\": \"v2.69.0\"}}}",
+      "imageManifest": "{\"schemaVersion\": 2, \"config\": {\"digest\": \"sha256:95ef94d4b0116cac7b062eadfa6a4422927cb9dc491adf242eb2550a7427a576\"}, \"layers\": [{\"digest\": \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}",
+      "prerelease": false,
+      "provenance": {
+        "buildSha256": "069a801f7bfdfb6ac567e7dd2e24b6ea16ff6047ee685fe89ccc505ae1b53666",
+        "imageDigest": "ghcr.io/blockfield/blockfield-server@sha256:c2110e5cc972e3aac3f12c77c76c597190df46be6879bf6f4fc4ccedd59ed7ee",
+        "sourceCommit": "1111111111111111111111111111111111111111"
+      },
+      "publishedAt": "2026-10-29T12:00:00Z",
+      "repository": "Blockfield/blockfield-server",
+      "tag": "v2.69.0"
+    },
+    "stateRevision": 2
+  },
+  "status": {
+    "deadline": null,
+    "desired": {
+      "candidate": null,
+      "modeId": null,
+      "profile": "workshop",
+      "release": "v2.68.0",
+      "session": "12345678-1234-4123-8123-123456789abc"
+    },
+    "error": null,
+    "errorMessage": null,
+    "game": {
+      "gate": "public",
+      "phase": "game",
+      "release": "v2.68.0"
+    },
+    "gate": "builders",
+    "message": "\u041d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u043f\u0440\u043e\u0432\u043e\u0434\u044f\u0442\u0441\u044f \u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u0438\u0435 \u0440\u0430\u0431\u043e\u0442\u044b. \u041e\u0431\u044b\u0447\u043d\u044b\u0439 \u0432\u0445\u043e\u0434 \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d.",
+    "operation": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    "phase": "workshop",
+    "revision": 1,
+    "schema": 1,
+    "selection": {
+      "deferred": false,
+      "operation": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      "revision": 1
+    },
+    "since": 1793310805082,
+    "updatedAt": 1793310805087
+  },
+  "target": {
+    "clientContract": {
+      "compatibility": "5555555555555555555555555555555555555555555555555555555555555555",
+      "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+      "version": "v1.0.0"
+    },
+    "imageDigest": "ghcr.io/blockfield/blockfield-server@sha256:fe695c3cf1b954b52bdc0dd1797de364f54048826ddee145d9f45d2e3cec86f2",
+    "operation": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    "previousTarget": null,
+    "release": "v2.68.0",
+    "revision": 1,
+    "runtimeOperation": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    "schema": 1,
+    "selectionRevision": 1,
+    "serverRuntime": {
+      "fabric": "0.16.14",
+      "fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+      "minecraft": "1.21.1",
+      "serverDigest": "3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "source": {
+      "buildJson": "{\"build\": \"v2.68.0\", \"client\": \"4444444444444444444444444444444444444444444444444444444444444444\", \"client_version\": \"v1.0.0\", \"compatibility\": \"5555555555555555555555555555555555555555555555555555555555555555\", \"fabric\": \"0.16.14\", \"minecraft\": \"1.21.1\", \"server_digest\": \"3333333333333333333333333333333333333333333333333333333333333333\", \"server_runtime\": \"2222222222222222222222222222222222222222222222222222222222222222\", \"sources\": {\"server\": \"1111111111111111111111111111111111111111\"}}",
+      "checksums": "c436631ca3e5a1b37fb9ff7b06426487f17d1cbb2c988362d8bf36071bf8f61d  build.json\n",
+      "commit": "1111111111111111111111111111111111111111",
+      "draft": false,
+      "imageConfig": "{\"config\": {\"Labels\": {\"org.opencontainers.image.source\": \"https://github.com/Blockfield/blockfield-server\", \"io.blockfield.server-digest\": \"v2.68.0\"}}}",
+      "imageManifest": "{\"schemaVersion\": 2, \"config\": {\"digest\": \"sha256:745e2dd742f356f66553bcaa9f49bd01d9df98c42bb62dd68cef7cbfda0f378e\"}, \"layers\": [{\"digest\": \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}",
+      "prerelease": false,
+      "provenance": {
+        "buildSha256": "c436631ca3e5a1b37fb9ff7b06426487f17d1cbb2c988362d8bf36071bf8f61d",
+        "imageDigest": "ghcr.io/blockfield/blockfield-server@sha256:fe695c3cf1b954b52bdc0dd1797de364f54048826ddee145d9f45d2e3cec86f2",
+        "sourceCommit": "1111111111111111111111111111111111111111"
+      },
+      "publishedAt": "2026-10-29T12:00:00Z",
+      "repository": "Blockfield/blockfield-server",
+      "tag": "v2.68.0"
+    },
+    "stateRevision": 1
+  }
+}

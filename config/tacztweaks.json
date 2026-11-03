@@ -1,0 +1,218 @@
+{
+  "version": 1,
+  "general": {
+    "compatibility": {
+      "forceDisableCrawl": false,
+      "firstAidCompat": true,
+      "lsoCompat": true,
+      "cuffedCompat": true,
+      "vsCompat": false,
+      "sableCompat": false,
+      "mtsCompat": true
+    },
+    "fixes": {
+      "crawlCooldownFix": true,
+      "thirdPersonGunRenderingFix": true,
+      "attachmentCompatibilityCheckFix": true,
+      "disableBulletCulling": false
+    },
+    "miscellaneous": {
+      "dynamicAttachmentSlots": false,
+      "rps": false
+    }
+  },
+  "keyActions": {
+    "unload": {
+      "enabled": true,
+      "unloadRoundInChamber": false
+    },
+    "reduceSensitivity": {
+      "type": "HOLD",
+      "sensitivityMultiplier": 0.5,
+      "disableWhileAiming": false
+    },
+    "tiltGun": {
+      "type": "HOLD",
+      "cancelSprint": true,
+      "reduceSensitivity": true
+    }
+  },
+  "gameplay": {
+    "handling": {
+      "shootWhileSprinting": true,
+      "reloadWhileSprinting": true,
+      "reloadInterruptsShooting": true,
+      "fireSelectInterruptsShooting": false,
+      "manualBolting": "DISABLED",
+      "disableUnderwater": false,
+      "disableWhileRowing": false,
+      "disableRefitOnAdventure": false
+    },
+    "behaviour": {
+      "realisticInaccuracy": false,
+      "tiltRework": false,
+      "magazineStyleReloading": false,
+      "magazineStyleReloadingExclusions": [
+        "tacz:m870",
+        "tacz:db_short",
+        "tacz:db_long"
+      ],
+      "bulletProtection": false,
+      "endermenEvadeBullets": false,
+      "infiniteAmmoDisablesConsumption": false
+    },
+    "crawl": {
+      "pitchUpperLimit": 25.0,
+      "pitchLowerLimit": -10.0,
+      "dynamicPitchLimit": false
+    }
+  },
+  "audioAndVisuals": {
+    "system": {
+      "mixToMono": false
+    },
+    "audio": {
+      "broadcastFirstPersonGunSounds": false,
+      "forceFirstPersonShootingSound": false,
+      "forceDefaultHitAndKillSounds": false,
+      "suppressHeadshotSounds": false,
+      "suppressHitSounds": false,
+      "suppressKillSounds": false
+    },
+    "visuals": {
+      "stopAimingWhileReloading": false,
+      "stopAimingWhileBolting": false,
+      "tiltOnCrawl": "DEFAULT",
+      "smootherCrawlAnimation": true,
+      "cancelInspection": false,
+      "hideHitMarkers": false
+    }
+  },
+  "balancing": {
+    "damage": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "playerDamage": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "explosionDamage": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "playerExplosionDamage": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "headshot": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "playerHeadshot": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "armorIgnore": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "rpm": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "capacity": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "speed": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "gravity": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "friction": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "aimTime": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "inaccuracy": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "standInaccuracy": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "aimInaccuracy": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "moveInaccuracy": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "sneakInaccuracy": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "crawlInaccuracy": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "verticalRecoil": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "horizontalRecoil": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "aimVerticalRecoil": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "aimHorizontalRecoil": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "crawlVerticalRecoil": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    },
+    "crawlHorizontalRecoil": {
+      "addend": 0.0,
+      "multiplier": 1.0,
+      "function": ""
+    }
+  }
+}

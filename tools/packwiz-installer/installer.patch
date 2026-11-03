@@ -1,0 +1,1126 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index 2d07423..7e3bde0 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -48,7 +48,24 @@ application {
+ }
+ 
+ val gitVersion: groovy.lang.Closure<*> by extra
+-version = gitVersion()
++version = "v0.5.14-bf6"
++
++tasks.withType<AbstractArchiveTask>().configureEach {
++	isPreserveFileTimestamps = false
++	isReproducibleFileOrder = true
++}
++
++tasks.register<JavaExec>("resumeTest") {
++	dependsOn(tasks.testClasses)
++	classpath = sourceSets.test.get().runtimeClasspath
++	mainClass.set("link.infra.packwiz.installer.ResumeChecks")
++}
++
++tasks.register<JavaExec>("mirrorTest") {
++	dependsOn(tasks.testClasses)
++	classpath = sourceSets.test.get().runtimeClasspath
++	mainClass.set("link.infra.packwiz.installer.MirrorChecks")
++}
+ 
+ tasks.jar {
+ 	manifest {
+@@ -203,4 +220,3 @@ if (project.hasProperty("bunnycdn.token")) {
+ 		}
+ 	}
+ }
+-
+diff --git a/src/main/kotlin/link/infra/packwiz/installer/DownloadTask.kt b/src/main/kotlin/link/infra/packwiz/installer/DownloadTask.kt
+index 917550a..3541450 100644
+--- a/src/main/kotlin/link/infra/packwiz/installer/DownloadTask.kt
++++ b/src/main/kotlin/link/infra/packwiz/installer/DownloadTask.kt
+@@ -11,13 +11,10 @@ import link.infra.packwiz.installer.target.path.PackwizFilePath
+ import link.infra.packwiz.installer.ui.data.ExceptionDetails
+ import link.infra.packwiz.installer.ui.data.IOptionDetails
+ import link.infra.packwiz.installer.util.Log
+-import okio.Buffer
+-import okio.HashingSink
+ import okio.blackholeSink
+ import okio.buffer
+ import java.io.IOException
+ import java.nio.file.Files
+-import java.nio.file.StandardCopyOption
+ 
+ internal class DownloadTask private constructor(val metadata: IndexFile.File, val index: IndexFile, private val downloadSide: Side) : IOptionDetails {
+ 	var cachedFile: ManifestFile.File? = null
+@@ -189,7 +186,7 @@ internal class DownloadTask private constructor(val metadata: IndexFile.File, va
+ 		}
+ 	}
+ 
+-	fun download(packFolder: PackwizFilePath, clientHolder: ClientHolder) {
++	fun download(packFolder: PackwizFilePath, clientHolder: ClientHolder, mirrors: Mirrors? = null) {
+ 		if (err != null) return
+ 
+ 		// Exclude wrong-side and optional false files
+@@ -230,51 +227,17 @@ internal class DownloadTask private constructor(val metadata: IndexFile.File, va
+ 
+ 		try {
+ 			val hash: Hash<*>
+-			val fileHashFormat: HashFormat<*>
+ 			val linkedFile = metadata.linkedFile
+ 
+ 			if (linkedFile != null) {
+ 				hash = linkedFile.hash
+-				fileHashFormat = linkedFile.download.hashFormat
+ 			} else {
+ 				hash = metadata.getHashObj(index)
+-				fileHashFormat = metadata.hashFormat(index)
+ 			}
+ 
+-			val src = metadata.getSource(clientHolder)
+-			val fileSource = fileHashFormat.source(src)
+-			val data = Buffer()
++			ResumableDownload.download(metadata.sourcePath, clientHolder, destPath.nioPath,
++				packFolder.nioPath.resolve(".packwiz-downloads"), hash, mirrors)
+ 
+-			// Read all the data into a buffer (very inefficient for large files! but allows rollback if hash check fails)
+-			// TODO: should we instead rename the existing file, then stream straight to the file and rollback from the renamed file?
+-			fileSource.buffer().use {
+-				it.readAll(data)
+-			}
+-
+-			if (hash == fileSource.hash) {
+-				// isDirectory follows symlinks, but createDirectories doesn't
+-				try {
+-					Files.createDirectories(destPath.parent.nioPath)
+-				} catch (e: java.nio.file.FileAlreadyExistsException) {
+-					if (!Files.isDirectory(destPath.parent.nioPath)) {
+-						throw e
+-					}
+-				}
+-				Files.copy(data.inputStream(), destPath.nioPath, StandardCopyOption.REPLACE_EXISTING)
+-				data.clear()
+-			} else {
+-				// TODO: move println to something visible in the error window
+-				println("Invalid hash for " + metadata.destURI.toString())
+-				println("Calculated: " + fileSource.hash)
+-				println("Expected:   $hash")
+-				// Attempt to get the SHA256 hash
+-				val sha256 = HashingSink.sha256(blackholeSink())
+-				data.readAll(sha256)
+-				println("SHA256 hash value: " + sha256.hash)
+-				err = Exception("Hash invalid!")
+-				data.clear()
+-				return
+-			}
+ 			cachedFile?.cachedLocation?.let {
+ 				if (destPath != it) {
+ 					// Delete old file if location changes
+diff --git a/src/main/kotlin/link/infra/packwiz/installer/Mirrors.kt b/src/main/kotlin/link/infra/packwiz/installer/Mirrors.kt
+new file mode 100644
+index 0000000..4933936
+--- /dev/null
++++ b/src/main/kotlin/link/infra/packwiz/installer/Mirrors.kt
+@@ -0,0 +1,146 @@
++package link.infra.packwiz.installer
++
++import com.google.gson.JsonParser
++import link.infra.packwiz.installer.metadata.hash.Hash
++import link.infra.packwiz.installer.target.ClientHolder
++import link.infra.packwiz.installer.target.path.HttpUrlPath
++import link.infra.packwiz.installer.target.path.PackwizPath
++import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
++import okhttp3.OkHttpClient
++import okhttp3.Request
++import java.util.Collections
++import java.util.Locale
++import java.util.concurrent.TimeUnit.MILLISECONDS
++
++/**
++ * Download mirrors of the pack host, listed in mirrors.json beside pack.toml:
++ * {"schema":1,"probe":{"path":"files/a.jar","hash":"<hex>"},"mirrors":[{"name":"CDN","url":"https://cdn.example/{path}"}]}.
++ * {path} is the file's URL relative to the pack host, {hash} the hex hash the pack declares for it, so a mirror can
++ * proxy the host or store files by content. Every file is still checked against that hash. Mirrors are ranked once
++ * per run by fetching the same probe slice from each; the pack host is only the last resort, so it is not probed.
++ */
++internal class Mirrors(
++    private val base: String,
++    private val listed: List<Mirror>,
++    private val probe: Pair<String, String>?,
++    client: ClientHolder,
++    private val timeoutMs: Long = 8000,
++) {
++    class Mirror(val name: String, val url: String) {
++        fun resolve(path: String?, hash: String): String? =
++            if (path == null && "{path}" in url) null else url.replace("{path}", path ?: "").replace("{hash}", hash)
++    }
++
++    private val failed = Collections.synchronizedSet(HashSet<Mirror>())
++    private val direct = base.toHttpUrlOrNull()?.host ?: base
++    private val speeds = HashMap<Mirror, Double>()
++
++    // Without the shared client's timeout retries (10+15+60 s): a mirror that stalls, like the
++    // Russian 16 KB cut of Cloudflare, must hand over to the next source quickly.
++    val http: OkHttpClient = client.okHttpClient.newBuilder().apply { interceptors().clear() }
++        .connectTimeout(timeoutMs, MILLISECONDS)
++        .readTimeout(timeoutMs, MILLISECONDS)
++        .build()
++
++    private val ranked: List<Mirror> by lazy { rank().also { announce(it) } }
++
++    /** Mirror URLs for a file at [url] with [hash] in preference order, then [url] itself. */
++    fun candidates(url: String, hash: Hash<*>): List<Pair<Mirror, String>> {
++        if (listed.isEmpty()) return emptyList()
++        val path = if (url.startsWith(base)) url.substring(base.length) else null
++        val hex = hex(hash)
++        return ranked.filter { it !in failed }.mapNotNull { mirror -> mirror.resolve(path, hex)?.let { mirror to it } }
++    }
++
++    fun skips(mirror: Mirror) = mirror in failed
++
++    // Synchronized so the announcements of concurrent failures cannot arrive out of order.
++    @Synchronized
++    fun failed(mirror: Mirror) {
++        if (!failed.add(mirror)) return
++        println("Mirror ${mirror.name} failed; the rest of this run skips it")
++        announce(ranked)
++    }
++
++    /** "[blockfield-mirror] NAME 12.3 MB/s": the source the launcher shows as the current one. */
++    private fun announce(order: List<Mirror>) {
++        val current = order.firstOrNull { it !in failed }
++        val speed = current?.let { speeds[it] }?.let { String.format(Locale.ROOT, " %.1f MB/s", it / 1e6) } ?: ""
++        println("[blockfield-mirror] ${current?.name ?: direct}$speed")
++    }
++
++    private fun rank(): List<Mirror> {
++        val (path, hash) = probe ?: return emptyList()
++        val measured = arrayOfNulls<Double>(listed.size)
++        listed.mapIndexed { i, mirror -> Thread { measured[i] = mirror.resolve(path, hash)?.let(::speed) }.apply { start() } }
++            .forEach { it.join() }
++        listed.forEachIndexed { i, mirror -> measured[i]?.let { speeds[mirror] = it } }
++        println("Mirror probe: " + listed.indices.joinToString {
++            listed[it].name + " " + (measured[it]?.let { s -> String.format(Locale.ROOT, "%.1f MB/s", s / 1e6) } ?: "failed")
++        })
++        return listed.indices.filter { (measured[it] ?: 0.0) >= MIN_SPEED }
++            .sortedByDescending { measured[it] }
++            .map { listed[it] }
++    }
++
++    private fun speed(url: String): Double? = try {
++        val request = Request.Builder().url(url)
++            .header("Range", "bytes=0-${PROBE_BYTES - 1}")
++            .header("Accept-Encoding", "identity")
++            .header("User-Agent", AGENT)
++            .build()
++        val call = http.newCall(request)
++        call.timeout().timeout(timeoutMs, MILLISECONDS)
++        call.execute().use { response ->
++            if (response.code != 200 && response.code != 206) null
++            else {
++                // From the first response bytes: connection setup and redirects say little about bulk speed.
++                val start = System.nanoTime()
++                response.body!!.source().skip(PROBE_BYTES)
++                PROBE_BYTES * 1e9 / (System.nanoTime() - start)
++            }
++        }
++    } catch (error: Exception) {
++        null
++    }
++
++    companion object {
++        const val PROBE_BYTES = 512L * 1024
++
++        // Below about 1 Mbit/s a mirror is throttled rather than working; the next source does better.
++        const val MIN_SPEED = 128.0 * 1024
++        private const val AGENT = "packwiz-installer/blockfield-mirrors"
++
++        fun <T> hex(hash: Hash<T>): String = hash.type.encodeToString(hash.value)
++
++        /** Mirrors of [packFile]'s host; none when mirrors.json is absent or invalid. */
++        fun load(packFile: PackwizPath<*>, client: ClientHolder): Mirrors {
++            val base = packFile.toString().substringBeforeLast('/') + "/"
++            val none = Mirrors(base, emptyList(), null, client)
++            if (packFile !is HttpUrlPath) return none
++            return try {
++                val request = Request.Builder().url(base + "mirrors.json").header("User-Agent", AGENT).build()
++                none.http.newCall(request).execute().use { response ->
++                    if (response.code == 404) return none
++                    check(response.isSuccessful) { "HTTP ${response.code}" }
++                    val root = JsonParser.parseString(response.body!!.string()).asJsonObject
++                    check(root["schema"].asInt == 1) { "schema ${root["schema"]}" }
++                    val probe = root["probe"].asJsonObject.let { it["path"].asString to it["hash"].asString }
++                    check(!probe.first.startsWith("/") && probe.first.split('/').none { it == ".." || it.isEmpty() }) {
++                        "probe ${probe.first}"
++                    }
++                    check(probe.second.matches(Regex("[0-9a-f]+"))) { "probe hash" }
++                    val listed = root["mirrors"].asJsonArray.map { entry ->
++                        val mirror = entry.asJsonObject
++                        Mirror(mirror["name"].asString, mirror["url"].asString)
++                    }
++                    check(listed.all { it.url.startsWith("https://") && it.name.isNotBlank() }) { "mirror list" }
++                    Mirrors(base, listed, probe, client)
++                }
++            } catch (error: Exception) {
++                println("Ignoring mirrors.json: $error")
++                none
++            }
++        }
++    }
++}
+diff --git a/src/main/kotlin/link/infra/packwiz/installer/ResumableDownload.kt b/src/main/kotlin/link/infra/packwiz/installer/ResumableDownload.kt
+new file mode 100644
+index 0000000..c33c4cc
+--- /dev/null
++++ b/src/main/kotlin/link/infra/packwiz/installer/ResumableDownload.kt
+@@ -0,0 +1,196 @@
++package link.infra.packwiz.installer
++
++import link.infra.packwiz.installer.metadata.hash.Hash
++import link.infra.packwiz.installer.target.ClientHolder
++import link.infra.packwiz.installer.target.path.HttpUrlPath
++import link.infra.packwiz.installer.target.path.PackwizPath
++import com.google.gson.Gson
++import okhttp3.OkHttpClient
++import okhttp3.Request
++import okio.ByteString.Companion.encodeUtf8
++import okio.blackholeSink
++import okio.buffer
++import okio.source
++import java.io.IOException
++import java.nio.file.AtomicMoveNotSupportedException
++import java.nio.file.Files
++import java.nio.file.Path
++import java.nio.file.StandardCopyOption.*
++import java.nio.file.StandardOpenOption.*
++
++internal object ResumableDownload {
++    // Same floor as the probe (Mirrors.MIN_SPEED): a source that trickles below ~1 Mbit/s over a full
++    // window is throttled rather than working, so the next source takes over instead of looking stuck.
++    const val STALL_WINDOW_SEC = 10L
++    private const val PROGRESS_EVERY_MS = 2000L
++
++    fun download(source: PackwizPath<*>, client: ClientHolder, destination: Path, cache: Path, hash: Hash<*>,
++                 mirrors: Mirrors? = null) {
++        Files.createDirectories(destination.toAbsolutePath().parent)
++        Files.createDirectories(cache)
++        require(!Files.isSymbolicLink(cache)) { "Download cache must not be a symlink" }
++        val prefix = destination.toAbsolutePath().normalize().toString().encodeUtf8().sha256().hex() + "-"
++        // .partial survives the launcher's cleanup of its unrelated .part files.
++        val partial = cache.resolve(prefix + hash.toString().encodeUtf8().sha256().hex() + ".partial")
++        require(!Files.isSymbolicLink(partial)) { "Download partial must not be a symlink" }
++        Files.newDirectoryStream(cache, "$prefix*.partial").use { files ->
++            for (file in files) if (file != partial) Files.deleteIfExists(file)
++        }
++        val name = destination.fileName.toString()
++
++        var valid = Files.exists(partial) && matches(partial, hash)
++        // One try per mirror; the partial carries over, so the next source resumes where this one stopped.
++        if (source is HttpUrlPath && mirrors != null) for ((mirror, url) in mirrors.candidates(source.toString(), hash)) {
++            if (valid) break
++            if (mirrors.skips(mirror)) continue
++            try {
++                val resumed = Files.exists(partial) && Files.size(partial) > 0
++                receive(url, mirrors.http, partial, name, mirror.name, Mirrors.MIN_SPEED.toLong(), hash)
++                valid = matches(partial, hash)
++                if (!valid && resumed) {
++                    // The bad bytes may come from an earlier source: one clean try before blaming this mirror.
++                    Files.deleteIfExists(partial)
++                    receive(url, mirrors.http, partial, name, mirror.name, Mirrors.MIN_SPEED.toLong(), hash)
++                    valid = matches(partial, hash)
++                }
++                if (!valid) {
++                    Files.deleteIfExists(partial)
++                    throw IOException("Invalid hash")
++                }
++            } catch (error: Exception) {
++                // A failed attempt may still have left a complete, hash-correct file (unknown length,
++                // abort on the final bytes): verify before blacklisting it and failing over.
++                if (Files.exists(partial) && matches(partial, hash)) {
++                    println("$name completed by ${mirror.name}; keeping it despite (${error.message})")
++                    valid = true
++                    break
++                }
++                println("$name from ${mirror.name} failed (${error.message}); trying the next source")
++                mirrors.failed(mirror)
++            }
++        }
++        for (attempt in 1..3) {
++            if (valid) break
++            try {
++                // The pack host is the last resort: no stall watchdog, so a slow link still completes.
++                if (source is HttpUrlPath) receive(source.toString(), client.okHttpClient, partial, name, "pack host", 0, hash)
++                else source.source(client).use { input ->
++                    Files.newOutputStream(partial).buffered().use { output -> input.inputStream().copyTo(output) }
++                }
++                valid = matches(partial, hash)
++                if (!valid) {
++                    Files.deleteIfExists(partial)
++                    throw IOException("Invalid hash for $name")
++                }
++            } catch (error: IOException) {
++                // Same as above: a complete partial counts as success instead of a retry.
++                if (Files.exists(partial) && matches(partial, hash)) {
++                    println("$name completed by the pack host; keeping it despite (${error.message})")
++                    valid = true
++                    break
++                }
++                if (attempt == 3) throw error
++                println("Retrying $name ($attempt/3); keeping downloaded bytes")
++                Thread.sleep(250L * attempt)
++            }
++        }
++        check(valid) { "Download has not been verified" }
++        try {
++            Files.move(partial, destination, ATOMIC_MOVE, REPLACE_EXISTING)
++        } catch (error: AtomicMoveNotSupportedException) {
++            Files.move(partial, destination, REPLACE_EXISTING)
++        }
++    }
++
++    private fun matches(path: Path, expected: Hash<*>): Boolean {
++        val input = expected.type.source(Files.newInputStream(path).source())
++        input.buffer().use { it.readAll(blackholeSink()) }
++        return input.hash == expected
++    }
++
++    private fun receive(url: String, http: OkHttpClient, partial: Path, name: String, source: String,
++                        stallFloor: Long, hash: Hash<*>) {
++        val offset = if (Files.exists(partial)) Files.size(partial) else 0L
++        val request = Request.Builder().url(url)
++            .header("Accept", "application/octet-stream")
++            .header("Accept-Encoding", "identity")
++            .header("User-Agent", "packwiz-installer/blockfield-resume")
++        if (offset > 0) request.header("Range", "bytes=$offset-")
++        http.newCall(request.build()).execute().use { response ->
++            if (response.code == 416) {
++                // A complete partial needs no range: verify it instead of deleting it.
++                if (Files.exists(partial) && matches(partial, hash)) return
++                Files.deleteIfExists(partial)
++                throw IOException("Range rejected; restarting ${partial.fileName}")
++            }
++            if (response.code == 408 || response.code == 429 || response.code in 500..599)
++                throw IOException("HTTP ${response.code}")
++            check(response.code == 200 || response.code == 206) { "HTTP ${response.code}" }
++            check(response.header("Content-Encoding", "identity").equals("identity", ignoreCase = true)) {
++                "Encoded response cannot be resumed safely"
++            }
++            val body = response.body ?: throw IOException("Missing response body")
++            var total = body.contentLength()
++            if (response.code == 206) {
++                val range = Regex("bytes ([0-9]+)-([0-9]+)/([0-9]+)")
++                    .matchEntire(response.header("Content-Range") ?: "")
++                    ?: throw IOException("Invalid Content-Range")
++                val (start, end, size) = range.destructured
++                total = size.toLong()
++                if (start.toLong() != offset || end.toLong() < offset || end.toLong() >= total
++                    || body.contentLength() >= 0 && body.contentLength() != end.toLong() - offset + 1)
++                    throw IOException("Inconsistent Content-Range")
++                if (offset > 0) println("Resuming ${url.substringAfterLast('/')} from $offset bytes")
++            }
++            val append = response.code == 206
++            val output = Files.newOutputStream(partial, CREATE, WRITE, if (append) APPEND else TRUNCATE_EXISTING)
++                .buffered(64 * 1024)
++            output.use {
++                val input = body.byteStream()
++                val chunk = ByteArray(64 * 1024)
++                // A 200 reply to a resume request restarts the file from zero on disk: count from zero too.
++                var received = if (append) offset else 0L
++                var windowStart = System.nanoTime()
++                var windowBytes = 0L
++                var lastReport = windowStart
++                report(name, source, received, total)
++                while (true) {
++                    val n = input.read(chunk)
++                    if (n < 0) break
++                    output.write(chunk, 0, n)
++                    received += n
++                    windowBytes += n
++                    val now = System.nanoTime()
++                    if (now - windowStart >= STALL_WINDOW_SEC * 1_000_000_000) {
++                        // A known-complete response is never aborted: EOF/length/hash validate it below.
++                        // Otherwise the window's bytes are compared against its actual elapsed time, so
++                        // bursts straddling window edges fail over just like steady trickles and a
++                        // collapse after a fast start does.
++                        val complete = total >= 0 && received >= total
++                        val windowSlow = windowBytes * 1_000_000_000 < stallFloor * (now - windowStart)
++                        if (!complete && stallFloor > 0 && windowSlow)
++                            throw IOException("Stalled below ${stallFloor / 1024} KiB/s; keeping $received bytes")
++                        windowStart = now
++                        windowBytes = 0
++                    }
++                    if (now - lastReport >= PROGRESS_EVERY_MS * 1_000_000) {
++                        report(name, source, received, total)
++                        lastReport = now
++                    }
++                }
++                // Files under ~2 s never print again; the completion line already names them.
++            }
++            if (total >= 0 && Files.size(partial) != total)
++                throw IOException("Incomplete response; keeping ${Files.size(partial)} bytes")
++        }
++    }
++
++    // Parsed by the launcher into the live "current file" row; throttled above so 10 threads stay readable.
++    // JSON so spaces, quotes and Unicode in names survive the trip (Gson is already a dependency).
++    private val json = Gson()
++
++    private fun report(name: String, source: String, received: Long, total: Long) {
++        println("[blockfield-file] {\"name\":${json.toJson(name)},\"received\":$received," +
++            "\"total\":${if (total >= 0) total.toString() else "null"},\"source\":${json.toJson(source)}}")
++    }
++}
+diff --git a/src/main/kotlin/link/infra/packwiz/installer/UpdateManager.kt b/src/main/kotlin/link/infra/packwiz/installer/UpdateManager.kt
+index 1f1c2dc..f3d918a 100644
+--- a/src/main/kotlin/link/infra/packwiz/installer/UpdateManager.kt
++++ b/src/main/kotlin/link/infra/packwiz/installer/UpdateManager.kt
+@@ -354,12 +354,13 @@ class UpdateManager internal constructor(private val opts: Options, val ui: IUse
+ 			}
+ 		}
+ 
++		val mirrors = Mirrors.load(opts.packFile, clientHolder)
+ 		// TODO: different thread pool type?
+ 		val threadPool = Executors.newFixedThreadPool(10)
+ 		val completionService: CompletionService<DownloadTask> = ExecutorCompletionService(threadPool)
+ 		tasks.forEach { t ->
+ 			completionService.submit {
+-				t.download(opts.packFolder, clientHolder)
++				t.download(opts.packFolder, clientHolder, mirrors)
+ 				t
+ 			}
+ 		}
+diff --git a/src/main/kotlin/link/infra/packwiz/installer/metadata/IndexFile.kt b/src/main/kotlin/link/infra/packwiz/installer/metadata/IndexFile.kt
+index 0858d50..c362520 100644
+--- a/src/main/kotlin/link/infra/packwiz/installer/metadata/IndexFile.kt
++++ b/src/main/kotlin/link/infra/packwiz/installer/metadata/IndexFile.kt
+@@ -7,7 +7,6 @@ import link.infra.packwiz.installer.metadata.hash.HashFormat
+ import link.infra.packwiz.installer.target.ClientHolder
+ import link.infra.packwiz.installer.target.path.PackwizPath
+ import link.infra.packwiz.installer.util.delegateTransitive
+-import okio.Source
+ import okio.buffer
+ 
+ data class IndexFile(
+@@ -46,17 +45,8 @@ data class IndexFile(
+ 			}
+ 		}
+ 
+-		@Throws(Exception::class)
+-		fun getSource(clientHolder: ClientHolder): Source {
+-			return if (metafile) {
+-				if (linkedFile == null) {
+-					throw Exception("Linked file doesn't exist!")
+-				}
+-				linkedFile!!.getSource(clientHolder)
+-			} else {
+-				file.source(clientHolder)
+-			}
+-		}
++		val sourcePath: PackwizPath<*>
++			get() = if (metafile) (linkedFile ?: throw Exception("Linked file doesn't exist!")).sourcePath else file
+ 
+ 		val name: String
+ 			get() {
+diff --git a/src/main/kotlin/link/infra/packwiz/installer/metadata/ModFile.kt b/src/main/kotlin/link/infra/packwiz/installer/metadata/ModFile.kt
+index 9f063f1..9cef62d 100644
+--- a/src/main/kotlin/link/infra/packwiz/installer/metadata/ModFile.kt
++++ b/src/main/kotlin/link/infra/packwiz/installer/metadata/ModFile.kt
+@@ -6,13 +6,11 @@ import cc.ekblad.toml.tomlMapper
+ import link.infra.packwiz.installer.metadata.curseforge.UpdateData
+ import link.infra.packwiz.installer.metadata.hash.Hash
+ import link.infra.packwiz.installer.metadata.hash.HashFormat
+-import link.infra.packwiz.installer.target.ClientHolder
+ import link.infra.packwiz.installer.target.Side
+ import link.infra.packwiz.installer.target.path.HttpUrlPath
+ import link.infra.packwiz.installer.target.path.PackwizPath
+ import link.infra.packwiz.installer.util.delegateTransitive
+ import okhttp3.HttpUrl.Companion.toHttpUrl
+-import okio.Source
+ import kotlin.reflect.KType
+ 
+ data class ModFile(
+@@ -55,20 +53,12 @@ data class ModFile(
+ 		}
+ 	}
+ 
+-	@Throws(Exception::class)
+-	fun getSource(clientHolder: ClientHolder): Source {
+-		return when (download.mode) {
+-			DownloadMode.URL -> {
+-				(download.url ?: throw Exception("No download URL provided")).source(clientHolder)
+-			}
+-			DownloadMode.CURSEFORGE -> {
+-				if (!resolvedUpdateData.contains("curseforge")) {
+-					throw Exception("Metadata file specifies CurseForge mode, but is missing metadata")
+-				}
+-				return resolvedUpdateData["curseforge"]!!.source(clientHolder)
+-			}
++	val sourcePath: PackwizPath<*>
++		get() = when (download.mode) {
++			DownloadMode.URL -> download.url ?: throw Exception("No download URL provided")
++			DownloadMode.CURSEFORGE -> resolvedUpdateData["curseforge"]
++				?: throw Exception("Metadata file specifies CurseForge mode, but is missing metadata")
+ 		}
+-	}
+ 
+ 	@get:Throws(Exception::class)
+ 	val hash: Hash<*>
+diff --git a/src/test/kotlin/link/infra/packwiz/installer/MirrorChecks.kt b/src/test/kotlin/link/infra/packwiz/installer/MirrorChecks.kt
+new file mode 100644
+index 0000000..6ed3303
+--- /dev/null
++++ b/src/test/kotlin/link/infra/packwiz/installer/MirrorChecks.kt
+@@ -0,0 +1,430 @@
++package link.infra.packwiz.installer
++
++import com.google.gson.JsonParser
++import com.sun.net.httpserver.HttpServer
++import link.infra.packwiz.installer.metadata.hash.HashFormat
++import link.infra.packwiz.installer.target.ClientHolder
++import link.infra.packwiz.installer.target.path.HttpUrlPath
++import okhttp3.HttpUrl.Companion.toHttpUrl
++import okio.ByteString.Companion.encodeUtf8
++import okio.ByteString.Companion.toByteString
++import java.io.ByteArrayOutputStream
++import java.io.IOException
++import java.io.PrintStream
++import java.net.InetSocketAddress
++import java.nio.file.Files
++import java.util.concurrent.CopyOnWriteArrayList
++
++object MirrorChecks {
++    private val bytes = ByteArray(1536 * 1024) { (it * 7 + it / 4096).toByte() }
++    private val hex = bytes.toByteString().sha256().hex()
++    private val smallBytes = ByteArray(1024 * 1024) { (it * 13 + it / 1024).toByte() }
++    private val smallHex = smallBytes.toByteString().sha256().hex()
++    // 10 MiB head-start fixture: a 3 MiB fast head keeps every cumulative/fixed average green
++    // while a ~100 KiB/s tail would run for over a minute without a sliding-window failover.
++    private val bigBytes = ByteArray(10 * 1024 * 1024) { (it * 5 + it / 2048).toByte() }
++    private val bigHex = bigBytes.toByteString().sha256().hex()
++
++    /** A pack host or mirror serving the file by path and by hash; [mode] picks how it misbehaves. */
++    private class Host(val mode: String) {
++        val ranges = CopyOnWriteArrayList<String>()
++        private var fileDrops = 1
++        val server: HttpServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
++            for (path in listOf("/pack/files/a.jar", "/pack/$hex")) createContext(path) { exchange ->
++                val range = exchange.requestHeaders.getFirst("Range") ?: "none"
++                ranges.add(range)
++                try {
++                    if (mode == "missing") {
++                        exchange.sendResponseHeaders(404, -1)
++                        return@createContext
++                    }
++                    val (start, end) = if (range == "none") 0 to bytes.size - 1 else range.removePrefix("bytes=")
++                        .split("-").let { (a, b) -> a.toInt() to (b.toIntOrNull() ?: (bytes.size - 1)) }
++                    if (range != "none") exchange.responseHeaders.add("Content-Range", "bytes $start-$end/${bytes.size}")
++                    val full = end - start + 1 > Mirrors.PROBE_BYTES
++                    if (mode == "drop-then-ignore" && full && range == "none" && fileDrops-- > 0) {
++                        // First full attempt sends half the file, then the connection dies mid-body.
++                        exchange.sendResponseHeaders(200, bytes.size.toLong())
++                        exchange.responseBody.write(bytes, 0, bytes.size / 2)
++                        exchange.responseBody.flush()
++                        return@createContext
++                    }
++                    if (mode == "ignore-resume" && full && range != "none") {
++                        // Ignores Range and restarts the file from zero (HTTP 200 on a resume request).
++                        exchange.sendResponseHeaders(200, bytes.size.toLong())
++                        exchange.responseBody.write(bytes, 0, bytes.size)
++                        exchange.responseBody.flush()
++                        return@createContext
++                    }
++                    if (mode == "ignore-resume" && !full && range != "none") {
++                        // Slow probe body (~440 KiB/s: above the floor, far below the drop host).
++                        // (Ranked by body speed timed from the first bytes, so a pre-header delay
++                        // would not count.)
++                        exchange.responseHeaders.add("Content-Range", "bytes $start-$end/${bytes.size}")
++                        exchange.sendResponseHeaders(206, (end - start + 1).toLong())
++                        for (chunk in start until end + 1 step 64 * 1024) {
++                            exchange.responseBody.write(bytes, chunk, minOf(64 * 1024, end + 1 - chunk))
++                            exchange.responseBody.flush()
++                            Thread.sleep(150)
++                        }
++                        return@createContext
++                    }
++                    exchange.sendResponseHeaders(if (range == "none") 200 else 206, (end - start + 1).toLong())
++                    val data = if (mode.startsWith("corrupt")) bytes.reversedArray() else bytes
++                    // "stall" stops like the Russian Cloudflare cut; "stall-file" passes the probe slice first.
++                    val cut = when {
++                        mode == "stall" -> start + 16 * 1024
++                        mode.endsWith("stall-file") && end - start + 1 > Mirrors.PROBE_BYTES -> start + 700 * 1024
++                        else -> end + 1
++                    }
++                    if (mode == "slow") {
++                        // About 80 KB/s: under Mirrors.MIN_SPEED without ever stalling.
++                        for (chunk in start until cut step 64 * 1024) {
++                            exchange.responseBody.write(data, chunk, minOf(64 * 1024, cut - chunk))
++                            exchange.responseBody.flush()
++                            Thread.sleep(900)
++                        }
++                    } else if (mode == "trickle-file" && end - start + 1 > Mirrors.PROBE_BYTES) {
++                        // Passes the probe slice at full speed, then ~13 KB/s: never idle long enough
++                        // for the read timeout, but under the stall floor over a full window.
++                        for (chunk in start until cut step 64 * 1024) {
++                            exchange.responseBody.write(data, chunk, minOf(64 * 1024, cut - chunk))
++                            exchange.responseBody.flush()
++                            Thread.sleep(5000)
++                        }
++                    } else if (mode == "burst-file" && end - start + 1 > Mirrors.PROBE_BYTES) {
++                        // 700 KiB bursts every 7 s (~100 KiB/s): no gap trips the idle timeout, and each
++                        // 10 s reset window holds ~1400 KiB, so only the elapsed-aware average catches it.
++                        var chunk = start
++                        while (chunk <= end) {
++                            val burstEnd = minOf(chunk + 700 * 1024, end + 1)
++                            exchange.responseBody.write(data, chunk, burstEnd - chunk)
++                            exchange.responseBody.flush()
++                            chunk = burstEnd
++                            if (chunk <= end) Thread.sleep(7000)
++                        }
++                    } else {
++                        exchange.responseBody.write(data, start, cut - start)
++                        exchange.responseBody.flush()
++                    }
++                    if (cut <= end) Thread.sleep(3000)
++                } catch (_: IOException) {
++                    // The client gave up on a stalled transfer.
++                } finally {
++                    exchange.close()
++                }
++            }
++            // 1 MiB completion-boundary fixtures: only these scenarios use these paths.
++            for (path in listOf("/pack/files/small.jar", "/pack/$smallHex")) createContext(path) { exchange ->
++                val range = exchange.requestHeaders.getFirst("Range") ?: "none"
++                ranges.add(range)
++                try {
++                    if (mode != "slow-finish" && mode != "chunked-complete") {
++                        exchange.sendResponseHeaders(404, -1)
++                        return@createContext
++                    }
++                    if (range == "none" && mode == "chunked-complete") {
++                        // No declared length (chunked framing): the complete 1 MiB body arrives with a
++                        // slow tail, so the watchdog fires on bytes the hash check must then rescue.
++                        exchange.sendResponseHeaders(200, 0)
++                        exchange.responseBody.write(smallBytes, 0, 512 * 1024)
++                        exchange.responseBody.flush()
++                        Thread.sleep(7000)
++                        exchange.responseBody.write(smallBytes, 512 * 1024, smallBytes.size - 512 * 1024 - 4096)
++                        exchange.responseBody.flush()
++                        Thread.sleep(4000)
++                        exchange.responseBody.write(smallBytes, smallBytes.size - 4096, 4096)
++                        exchange.responseBody.flush()
++                    } else if (range == "none") {
++                        // Full body, but the tail arrives just past the 10 s window: the transfer is
++                        // complete, so the watchdog must let EOF/length/hash validate it, not abort it.
++                        exchange.sendResponseHeaders(200, smallBytes.size.toLong())
++                        exchange.responseBody.write(smallBytes, 0, smallBytes.size - 4096)
++                        exchange.responseBody.flush()
++                        Thread.sleep(10500)
++                        exchange.responseBody.write(smallBytes, smallBytes.size - 4096, 4096)
++                        exchange.responseBody.flush()
++                    } else {
++                        // Probe slice at full speed.
++                        val (start, end) = range.removePrefix("bytes=")
++                            .split("-").let { (a, b) -> a.toInt() to (b.toIntOrNull() ?: (smallBytes.size - 1)) }
++                        exchange.responseHeaders.add("Content-Range", "bytes $start-$end/${smallBytes.size}")
++                        exchange.sendResponseHeaders(206, (end - start + 1).toLong())
++                        exchange.responseBody.write(smallBytes, start, end - start + 1)
++                        exchange.responseBody.flush()
++                    }
++                } catch (_: IOException) {
++                    // The client gave up on a stalled transfer.
++                } finally {
++                    exchange.close()
++                }
++            }
++            // 10 MiB head-start fixture: "big-ok" serves it plainly (pack-host side), while
++            // "big-fast-then-burst" sends a 3 MiB fast head then 300 KiB every 3 s (~100 KiB/s tail).
++            for (path in listOf("/pack/files/big.jar", "/pack/$bigHex")) createContext(path) { exchange ->
++                val range = exchange.requestHeaders.getFirst("Range") ?: "none"
++                ranges.add(range)
++                try {
++                    if (mode != "big-ok" && mode != "big-fast-then-burst") {
++                        exchange.sendResponseHeaders(404, -1)
++                        return@createContext
++                    }
++                    val (start, end) = if (range == "none") 0 to bigBytes.size - 1 else range.removePrefix("bytes=")
++                        .split("-").let { (a, b) -> a.toInt() to (b.toIntOrNull() ?: (bigBytes.size - 1)) }
++                    val full = end - start + 1 > Mirrors.PROBE_BYTES
++                    if (mode == "big-fast-then-burst" && full) {
++                        if (start == 0) {
++                            exchange.sendResponseHeaders(200, bigBytes.size.toLong())
++                            exchange.responseBody.write(bigBytes, 0, 3 * 1024 * 1024)
++                            exchange.responseBody.flush()
++                        } else {
++                            exchange.responseHeaders.add("Content-Range", "bytes $start-$end/${bigBytes.size}")
++                            exchange.sendResponseHeaders(206, (end - start + 1).toLong())
++                        }
++                        // 700 KiB every 7 s: each ~14 s evaluation window holds ~1400 KiB (a fixed
++                        // 10 s threshold passes) while the tail averages ~100 KiB/s.
++                        var chunk = maxOf(start, 3 * 1024 * 1024)
++                        while (chunk <= end) {
++                            val burstEnd = minOf(chunk + 700 * 1024, end + 1)
++                            exchange.responseBody.write(bigBytes, chunk, burstEnd - chunk)
++                            exchange.responseBody.flush()
++                            chunk = burstEnd
++                            if (chunk <= end) Thread.sleep(7000)
++                        }
++                        return@createContext
++                    }
++                    if (range != "none") exchange.responseHeaders.add("Content-Range", "bytes $start-$end/${bigBytes.size}")
++                    exchange.sendResponseHeaders(if (range == "none") 200 else 206, (end - start + 1).toLong())
++                    exchange.responseBody.write(bigBytes, start, end - start + 1)
++                    exchange.responseBody.flush()
++                } catch (_: IOException) {
++                    // The client gave up on a stalled transfer.
++                } finally {
++                    exchange.close()
++                }
++            }
++            start()
++        }
++        val base get() = "http://127.0.0.1:${server.address.port}/pack/"
++    }
++
++    @JvmStatic
++    fun main(args: Array<String>) {
++        val root = Files.createTempDirectory("packwiz-mirror-check-")
++        val client = ClientHolder()
++        val hosts = mutableListOf<Host>()
++        fun host(mode: String) = Host(mode).also { hosts.add(it) }
++        val hash = HashFormat.SHA256.fromString(hex)
++        var run = 0
++        fun download(direct: Host, vararg mirrors: Host, layout: String = "{path}", timeoutMs: Long = 1000) {
++            val destination = root.resolve("run${++run}/mods/a.jar")
++            val list = Mirrors(direct.base, mirrors.map { Mirrors.Mirror(it.mode, it.base + layout) },
++                "files/a.jar" to hex, client, timeoutMs)
++            ResumableDownload.download(HttpUrlPath((direct.base + "files/a.jar").toHttpUrl()), client, destination,
++                root.resolve("run$run/cache"), hash, list)
++            check(Files.readAllBytes(destination).contentEquals(bytes)) { "Wrong bytes installed in run $run" }
++        }
++        try {
++            var direct = host("ok")
++            val good = host("ok")
++            download(direct, host("stall"), good)
++            check(direct.ranges.isEmpty()) { "The pack host is the last resort, not probed: ${direct.ranges}" }
++            check(good.ranges.size == 2) { "The working mirror did not serve the file: ${good.ranges}" }
++            println("Stalled mirror skipped at the probe, file from the working mirror")
++
++            direct = host("ok")
++            download(direct, host("missing"))
++            check(direct.ranges == listOf("none")) { "Direct: ${direct.ranges}" }
++            println("Missing mirror skipped, file from the pack host")
++
++            direct = host("ok")
++            download(direct, host("slow"), timeoutMs = 8000)
++            check(direct.ranges == listOf("none")) { "A throttled mirror was used: ${direct.ranges}" }
++            println("Throttled mirror below the speed floor skipped")
++
++            direct = host("ok")
++            download(direct, host("stall-file"))
++            val resumed = direct.ranges.last().removePrefix("bytes=").removeSuffix("-").toLongOrNull()
++            check(resumed != null && resumed > Mirrors.PROBE_BYTES) { "Direct did not resume: ${direct.ranges}" }
++            println("Mirror stalled mid-file, the pack host resumed from $resumed bytes")
++
++            // A mirror that passes the probe then trickles below the floor must fail over mid-file,
++            // not hold the update for the whole file. Gaps stay under the read timeout, so only
++            // the stall watchdog can trigger this.
++            direct = host("ok")
++            val trickle = host("trickle-file")
++            download(direct, trickle, timeoutMs = 8000)
++            check(trickle.ranges == listOf("bytes=0-${Mirrors.PROBE_BYTES - 1}", "none")) {
++                "Trickle mirror: ${trickle.ranges}"
++            }
++            val resumedAfterTrickle = direct.ranges.singleOrNull()
++                ?.removePrefix("bytes=")?.removeSuffix("-")?.toLongOrNull()
++            check(resumedAfterTrickle != null && resumedAfterTrickle > 0) {
++                "Pack host did not resume: ${direct.ranges}"
++            }
++            println("Trickling mirror failed over mid-file, the pack host resumed from $resumedAfterTrickle bytes")
++
++            // Bursts below the floor straddle the 10 s reset windows, so only the elapsed-aware
++            // window average catches them: 700 KiB every 7 s never trips the idle timeout but
++            // averages ~100 KiB/s.
++            direct = host("ok")
++            val bursty = host("burst-file")
++            download(direct, bursty, timeoutMs = 8000)
++            check(bursty.ranges == listOf("bytes=0-${Mirrors.PROBE_BYTES - 1}", "none")) {
++                "Bursty mirror: ${bursty.ranges}"
++            }
++            val resumedAfterBurst = direct.ranges.singleOrNull()
++                ?.removePrefix("bytes=")?.removeSuffix("-")?.toLongOrNull()
++            check(resumedAfterBurst != null && resumedAfterBurst > 0) {
++                "Pack host did not resume: ${direct.ranges}"
++            }
++            println("Bursty mirror failed over mid-file, the pack host resumed from $resumedAfterBurst bytes")
++
++            // A fast head must not shield a slow bursty tail: a 3 MiB head over a 10 MiB file keeps
++            // every fixed-threshold window and the cumulative average green while the ~100 KiB/s tail
++            // would run for over a minute, so only the elapsed-aware window average fails over.
++            // The pack host side serves the same big file for the resume.
++            direct = host("big-ok")
++            val fastBurst = host("big-fast-then-burst")
++            val bigHash = HashFormat.SHA256.fromString(bigHex)
++            val bigDest = root.resolve("run${++run}/mods/big.jar")
++            val bigCache = root.resolve("run$run/cache")
++            ResumableDownload.download(HttpUrlPath((direct.base + "files/big.jar").toHttpUrl()), client,
++                bigDest, bigCache, bigHash,
++                Mirrors(direct.base, listOf(Mirrors.Mirror("big", fastBurst.base + "{path}")),
++                    "files/big.jar" to bigHex, client, 8000))
++            check(Files.readAllBytes(bigDest).contentEquals(bigBytes)) { "Wrong bytes in run $run" }
++            check(fastBurst.ranges == listOf("bytes=0-${Mirrors.PROBE_BYTES - 1}", "none")) {
++                "Fast-then-bursty mirror: ${fastBurst.ranges}"
++            }
++            val resumedAfterFastBurst = direct.ranges.singleOrNull()
++                ?.removePrefix("bytes=")?.removeSuffix("-")?.toLongOrNull()
++            check(resumedAfterFastBurst != null && resumedAfterFastBurst > 0) {
++                "Pack host did not resume: ${direct.ranges}"
++            }
++            println("Fast-then-bursty mirror failed over mid-file, the pack host resumed from $resumedAfterFastBurst bytes")
++
++            // A response that finishes just past the 10 s window is complete, not stalled: the watchdog
++            // must let EOF/length/hash validate it — no failover, no second request, no partial deletion.
++            direct = host("ok")
++            val slowFinish = host("slow-finish")
++            val smallHash = HashFormat.SHA256.fromString(smallHex)
++            val smallDest = root.resolve("run${++run}/mods/small.jar")
++            val smallCache = root.resolve("run$run/cache")
++            ResumableDownload.download(HttpUrlPath((direct.base + "files/small.jar").toHttpUrl()), client,
++                smallDest, smallCache, smallHash,
++                Mirrors(direct.base, listOf(Mirrors.Mirror("slow-finish", slowFinish.base + "{path}")),
++                    "files/small.jar" to smallHex, client, 30000))
++            check(Files.readAllBytes(smallDest).contentEquals(smallBytes)) { "Wrong bytes in run $run" }
++            check(slowFinish.ranges == listOf("bytes=0-${Mirrors.PROBE_BYTES - 1}", "none")) {
++                "Slow finish: ${slowFinish.ranges}"
++            }
++            check(direct.ranges.isEmpty()) { "Complete download failed over: ${direct.ranges}" }
++            check(Files.list(smallCache).use { !it.findAny().isPresent }) { "Partial left behind" }
++            println("Complete download past the window verified without failover")
++
++            // A complete body with no declared length (chunked framing) and a slow tail: the watchdog
++            // fires on the final bytes, but the hash-correct partial counts as success — no fallback
++            // request, no deletion.
++            direct = host("ok")
++            val chunked = host("chunked-complete")
++            val chunkedDest = root.resolve("run${++run}/mods/small.jar")
++            val chunkedCache = root.resolve("run$run/cache")
++            ResumableDownload.download(HttpUrlPath((direct.base + "files/small.jar").toHttpUrl()), client,
++                chunkedDest, chunkedCache, smallHash,
++                Mirrors(direct.base, listOf(Mirrors.Mirror("chunked", chunked.base + "{path}")),
++                    "files/small.jar" to smallHex, client, 30000))
++            check(Files.readAllBytes(chunkedDest).contentEquals(smallBytes)) { "Wrong bytes in run $run" }
++            check(chunked.ranges == listOf("bytes=0-${Mirrors.PROBE_BYTES - 1}", "none")) {
++                "Chunked: ${chunked.ranges}"
++            }
++            check(direct.ranges.isEmpty()) { "Complete body failed over: ${direct.ranges}" }
++            check(Files.list(chunkedCache).use { !it.findAny().isPresent }) { "Partial left behind" }
++            println("Unknown-length complete body verified without failover")
++
++            // A resume answered with HTTP 200 restarts the file on disk: progress must restart from
++            // zero too, and the spaced destination name must survive the line format (parsed as JSON).
++            // The drop host probes instantly and is tried first; the restart host probes slowly.
++            direct = host("ok")
++            val dropper = host("drop-then-ignore")
++            val restarter = host("ignore-resume")
++            val spacedDest = root.resolve("run${++run}/mods/My Mod.jar")
++            val spacedCache = root.resolve("run$run/cache")
++            val captured = ByteArrayOutputStream()
++            val previousOut = System.out
++            System.setOut(PrintStream(captured, true))
++            try {
++                ResumableDownload.download(HttpUrlPath((direct.base + "files/a.jar").toHttpUrl()), client,
++                    spacedDest, spacedCache, hash,
++                    Mirrors(direct.base, listOf(Mirrors.Mirror("dropper", dropper.base + "{path}"),
++                        Mirrors.Mirror("restart mirror", restarter.base + "{path}")),
++                        "files/a.jar" to hex, client, 8000))
++            } finally {
++                System.out.flush()
++                System.setOut(previousOut)
++            }
++            check(Files.readAllBytes(spacedDest).contentEquals(bytes)) { "Wrong bytes in run $run" }
++            check(dropper.ranges == listOf("bytes=0-${Mirrors.PROBE_BYTES - 1}", "none")) {
++                "Dropper: ${dropper.ranges}"
++            }
++            check(restarter.ranges == listOf("bytes=0-${Mirrors.PROBE_BYTES - 1}", "bytes=${bytes.size / 2}-")) {
++                "Restart: ${restarter.ranges}"
++            }
++            check(direct.ranges.isEmpty()) { "Restarted download failed over: ${direct.ranges}" }
++            val fileLines = captured.toString(Charsets.UTF_8).lineSequence()
++                .filter { it.startsWith("[blockfield-file] ") }
++                .map { JsonParser.parseString(it.removePrefix("[blockfield-file] ")).asJsonObject }
++                .toList()
++            check(fileLines.isNotEmpty()) { "No progress lines captured" }
++            check(fileLines.all { it["name"].asString == "My Mod.jar" }) { "Spaced name lost" }
++            check(fileLines.all { it["total"].asLong == bytes.size.toLong() }) { "Wrong total" }
++            check(fileLines.map { it["source"].asString }.toSet() == setOf("dropper", "restart mirror")) {
++                "Spaced source lost"
++            }
++            // Both attempts start at zero (the 200 restart recounts); the old code started the
++            // second attempt at the stale resume offset instead.
++            check(fileLines.count { it["received"].asLong == 0L } == 2) {
++                "Restart did not recount from zero"
++            }
++            println("Ignored Range restarts progress from zero, spaced name parsed")
++
++            direct = host("ok")
++            download(direct, host("corrupt"))
++            check(direct.ranges.last() == "none") { "A corrupt partial was resumed: ${direct.ranges}" }
++            println("Corrupt mirror bytes discarded, file from the pack host")
++
++            // Bad bytes left by an earlier source: the working mirror resumes, fails the hash, retries from zero.
++            direct = host("ok")
++            val clean = host("ok")
++            val destination = root.resolve("prefix/mods/a.jar")
++            val cache = Files.createDirectories(root.resolve("prefix/cache"))
++            Files.write(cache.resolve(destination.toAbsolutePath().normalize().toString().encodeUtf8().sha256().hex() +
++                "-" + hash.toString().encodeUtf8().sha256().hex() + ".partial"), bytes.copyOf(700 * 1024).reversedArray())
++            ResumableDownload.download(HttpUrlPath((direct.base + "files/a.jar").toHttpUrl()), client, destination, cache,
++                hash, Mirrors(direct.base, listOf(Mirrors.Mirror("clean", clean.base + "{path}")), "files/a.jar" to hex,
++                    client, timeoutMs = 1000))
++            check(Files.readAllBytes(destination).contentEquals(bytes)) { "Wrong bytes after a bad prefix" }
++            check(clean.ranges.drop(1) == listOf("bytes=${700 * 1024}-", "none")) { "Clean retry: ${clean.ranges}" }
++            check(direct.ranges.isEmpty()) { "The pack host served a file a working mirror had: ${direct.ranges}" }
++            println("Bad prefix from an earlier source: the working mirror retried from zero instead of being blamed")
++
++            check(Mirrors("/tmp/pack/", listOf(Mirrors.Mirror("x", "https://x/{path}")), null, client)
++                .candidates("/tmp/pack/a.jar", hash).isEmpty()) { "Local pack" }
++
++            direct = host("ok")
++            val byHash = host("ok")
++            download(direct, byHash, layout = "{hash}")
++            check(byHash.ranges.size == 2 && direct.ranges.isEmpty()) { "Hash layout: ${byHash.ranges} ${direct.ranges}" }
++            println("Content-addressed mirror served the file by its hash")
++
++            direct = host("ok")
++            val absent = Mirrors.load(HttpUrlPath((direct.base + "pack.toml").toHttpUrl()), client)
++            check(absent.candidates(direct.base + "files/a.jar", hash).isEmpty())
++            println("PASS: probe ranking, missing, stalled, throttled, mid-file stall with resume, trickle failover, bursty failover, fast-then-bursty failover, complete past the window, unknown-length complete, ignored-Range restart, corrupt mirror, bad prefix, local pack, hash layout, absent mirrors.json")
++        } finally {
++            hosts.forEach { it.server.stop(0) }
++            client.close()
++            Files.walk(root).use { it.sorted(Comparator.reverseOrder()).forEach(Files::delete) }
++        }
++    }
++}
+diff --git a/src/test/kotlin/link/infra/packwiz/installer/ResumeChecks.kt b/src/test/kotlin/link/infra/packwiz/installer/ResumeChecks.kt
+new file mode 100644
+index 0000000..8756091
+--- /dev/null
++++ b/src/test/kotlin/link/infra/packwiz/installer/ResumeChecks.kt
+@@ -0,0 +1,119 @@
++package link.infra.packwiz.installer
++
++import com.sun.net.httpserver.HttpServer
++import link.infra.packwiz.installer.metadata.hash.HashFormat
++import link.infra.packwiz.installer.target.ClientHolder
++import link.infra.packwiz.installer.target.path.HttpUrlPath
++import okhttp3.HttpUrl.Companion.toHttpUrl
++import okio.ByteString.Companion.toByteString
++import java.io.IOException
++import java.net.InetSocketAddress
++import java.nio.file.Files
++import java.util.concurrent.CopyOnWriteArrayList
++import java.util.concurrent.atomic.AtomicReference
++
++object ResumeChecks {
++    @JvmStatic
++    fun main(args: Array<String>) {
++        val root = Files.createTempDirectory("packwiz-resume-check-")
++        val cache = root.resolve("cache")
++        val destination = root.resolve("mods/test.jar")
++        val old = "installed version".toByteArray()
++        var bytes = ByteArray(512 * 1024) { (it * 31).toByte() }
++        val mode = AtomicReference("drop-once")
++        val ranges = CopyOnWriteArrayList<String>()
++        val served = java.util.concurrent.atomic.AtomicLong()
++        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
++        server.createContext("/file") { exchange ->
++            val range = exchange.requestHeaders.getFirst("Range") ?: "none"
++            ranges.add(range)
++            val action = mode.get()
++            if (action == "unavailable") {
++                exchange.sendResponseHeaders(503, -1)
++                exchange.close()
++            } else if (action == "reject-range" && range != "none") {
++                mode.set("healthy")
++                exchange.sendResponseHeaders(416, -1)
++                exchange.close()
++            } else {
++                val offset = if (range == "none" || action == "ignore-range") 0 else range.removePrefix("bytes=").removeSuffix("-").toInt()
++                if (offset > 0) exchange.responseHeaders.add("Content-Range",
++                    "bytes ${offset + if (action == "bad-range") 1 else 0}-${bytes.size - 1}/${bytes.size}")
++                exchange.sendResponseHeaders(if (offset > 0) 206 else 200, (bytes.size - offset).toLong())
++                try {
++                    exchange.responseBody.use { output ->
++                        val count = if (action.startsWith("drop-")) bytes.size / 2 else bytes.size - offset
++                        val data = if (action == "corrupt") ByteArray(bytes.size) else bytes
++                        output.write(data, offset, count)
++                        output.flush()
++                        served.addAndGet(count.toLong())
++                        if (action == "drop-once") mode.set("healthy")
++                        if (action == "drop-stop") mode.set("unavailable")
++                    }
++                } catch (_: IOException) {
++                    // Deliberately close a truncated HTTP body to exercise a real network interruption.
++                } finally { exchange.close() }
++            }
++        }
++        server.start()
++        val client = ClientHolder()
++        val source = HttpUrlPath("http://127.0.0.1:${server.address.port}/file".toHttpUrl())
++        fun download() = ResumableDownload.download(source, client, destination, cache,
++            HashFormat.SHA256.fromString(bytes.toByteString().sha256().hex()))
++        fun reset(action: String) {
++            ranges.clear()
++            served.set(0)
++            mode.set(action)
++            Files.createDirectories(destination.toAbsolutePath().parent)
++            Files.write(destination, old)
++        }
++        fun partial() = Files.list(cache).use { it.findFirst().get() }
++        fun fails() {
++            check(runCatching { download() }.isFailure)
++            check(Files.readAllBytes(destination).contentEquals(old)) { "Existing installation was overwritten" }
++        }
++        fun correct() {
++            check(Files.readAllBytes(destination).contentEquals(bytes))
++            check(Files.list(cache).use { !it.findAny().isPresent })
++        }
++        try {
++            reset("drop-once")
++            download()
++            correct()
++            check(ranges == listOf("none", "bytes=${bytes.size / 2}-"))
++            check(served.get() == bytes.size.toLong()) { "Resume downloaded the prefix twice" }
++            println("Interrupted transfer: ${served.get()} bytes sent for a ${bytes.size}-byte file")
++
++            for (action in listOf("healthy", "ignore-range", "reject-range", "bad-range", "completed", "changed-hash")) {
++                reset("drop-stop")
++                fails()
++                check(Files.size(partial()) == (bytes.size / 2).toLong())
++                ranges.clear()
++                mode.set(action)
++                if (action == "bad-range") {
++                    fails()
++                    check(Files.size(partial()) == (bytes.size / 2).toLong())
++                    mode.set("healthy")
++                }
++                if (action == "completed") Files.write(partial(), bytes)
++                if (action == "changed-hash") bytes = bytes.map { (it + 1).toByte() }.toByteArray()
++                download()
++                correct()
++                if (action == "completed") check(ranges.isEmpty())
++                else if (action == "changed-hash") check(ranges.first() == "none")
++                else check(ranges.first() == "bytes=${bytes.size / 2}-")
++            }
++            reset("corrupt")
++            fails()
++            check(Files.list(cache).use { !it.findAny().isPresent })
++            mode.set("healthy")
++            download()
++            correct()
++            println("PASS: retry, restart, ignored/rejected/malformed ranges, completed partial, changed hash, corruption, safe replacement")
++        } finally {
++            server.stop(0)
++            client.close()
++            Files.walk(root).use { it.sorted(Comparator.reverseOrder()).forEach(Files::delete) }
++        }
++    }
++}

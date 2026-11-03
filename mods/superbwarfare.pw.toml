@@ -1,0 +1,8 @@
+name = "Superb Warfare (Blockfield Fabric port: стекло от пуль, жилет-патроны, поза бега гранаты, хедшот/взрыв срезают плиту, ПНВ-шейдер, сервер проверяет права на управление дроном, сессия и порядковый номер пакетов управления, техника и дроны не замирают вне камеры при Entity Culling)"
+filename = "superbwarfare-0.8.9.1-mc1.21.1-bf26.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/superbwarfare-fabric/releases/download/bf26/superbwarfare-0.8.9.1-mc1.21.1-bf26.jar"
+hash-format = "sha512"
+hash = "bb8b5ff2b8fb22b25c8c5a21bd1a495515c2f653560d43ff4b65a4acae16a9bf825404960b2da4b5b6bbca5d4f2760be5543c7e6e90e1b4e861fe71ce46d0242"

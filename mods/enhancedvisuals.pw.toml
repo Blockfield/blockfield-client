@@ -1,0 +1,13 @@
+name = "EnhancedVisuals"
+filename = "EnhancedVisuals_FABRIC_v1.8.30_mc1.21.1.jar"
+side = "client"
+
+[download]
+url = "https://cdn.modrinth.com/data/KjL0jE2w/versions/gO7CGYSK/EnhancedVisuals_FABRIC_v1.8.30_mc1.21.1.jar"
+hash-format = "sha512"
+hash = "89eed56366283270ff64387de18a91d3752569e22dba40c86020d59981f23fc3a9dab810a26870b1de4c60de64bebd38b9c5b9693c9cf1ed0bff0af7956626ab"
+
+[update]
+[update.modrinth]
+mod-id = "KjL0jE2w"
+version = "gO7CGYSK"

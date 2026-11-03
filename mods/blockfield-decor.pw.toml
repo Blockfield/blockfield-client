@@ -1,0 +1,8 @@
+name = "Blockfield Decor v1.2.1"
+filename = "blockfield-decor-1.2.1+mc1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/blockfield-decor/releases/download/v1.2.1/blockfield-decor-1.2.1%2Bmc1.21.1.jar"
+hash-format = "sha512"
+hash = "8574dd4c3693721de7f66e9312627b0af2607424ba4803ccc392890e0d8fa8db441d850dfce04c927f9ef61bfaf33b0dbf24f54d3f18aeebc64128b3d7729e19"

@@ -1,0 +1,13 @@
+name = "TaCZ Tweaks"
+filename = "tacz-tweaks-3.0.0-alpha.10+1.21.1-fabric.jar"
+side = "both"
+
+[download]
+url = "https://cdn.modrinth.com/data/H8peNuJG/versions/wEKCLlcc/tacz-tweaks-3.0.0-alpha.10%2B1.21.1-fabric.jar"
+hash-format = "sha512"
+hash = "11630dfdd460a434a9fe95319a5bc40db49fae6e2a840e7bb7642788257a3181d2d97d8743b5c256a6acda263c1042e7c2bb414460e8ee3ed9015a56ccb629f2"
+
+[update]
+[update.modrinth]
+mod-id = "H8peNuJG"
+version = "wEKCLlcc"

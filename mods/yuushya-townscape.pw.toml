@@ -1,0 +1,8 @@
+name = "[UNOFFICIAL] Yuushya Townscape (битые модели/текстуры декора исправлены)"
+filename = "yuushya-1.21.0-fabric-2.3.0-bf4.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/yuushya/releases/download/bf4/yuushya-1.21.0-fabric-2.3.0-bf4.jar"
+hash-format = "sha512"
+hash = "64ecd9aced09e07deca81f0299232b0765d2386d813bd418adfb80503a27ec5adc109d0e01ee2d313f347b6cf3a2a078fe9b8a5a5531724a7224d6d0d5af9262"

@@ -1,0 +1,8 @@
+name = "Porting Lib Entity"
+filename = "porting_lib_entity-3.1.0-beta.90+1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/import-2.53.0/porting_lib_entity-3.1.0-beta.90%2B1.21.1.jar"
+hash-format = "sha512"
+hash = "e135c287cb6a05f876bbb244c6ad76b1bb690789ca9a65afc6783c04c065a1a642eb3d4b9f58c6ae681b86d9ceb20ff8e398f70b458629b0bf60127b93950c70"

@@ -1,0 +1,8 @@
+name = "SimpleBedrockModel (Blockfield patch)"
+filename = "simplebedrockmodel-fabric-2.5.1+mc1.21.1-bf5.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/simplebedrockmodel-fabric/releases/download/bf5/simplebedrockmodel-fabric-2.5.1+mc1.21.1-bf5.jar"
+hash-format = "sha512"
+hash = "011ee87986945afd8da2d582589f6b6933c9d5a7b3fa781a2a8ff5d96dd129196ea6611b92057ac4174efb6fd8007eec1ff683919f28b4a737557ca57476d838"

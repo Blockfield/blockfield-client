@@ -1,0 +1,8 @@
+name = "Porting Lib Chunk Loading"
+filename = "porting_lib_chunk_loading-3.1.0-beta.90+1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/import-2.53.0/porting_lib_chunk_loading-3.1.0-beta.90%2B1.21.1.jar"
+hash-format = "sha512"
+hash = "cd5e21016fca7800f40ac84c5660ca45aab44edfbacace0741e702a462ac9023c87c592f1aa7859ee0070c3d1c92f9cd3db7ef78b3d8d5e8b2579b8e558c8437"

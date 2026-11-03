@@ -1,0 +1,8 @@
+name = "Porting Lib Mixin Extensions"
+filename = "porting_lib_mixin_extensions-3.1.0-beta.90+1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/import-2.53.0/porting_lib_mixin_extensions-3.1.0-beta.90%2B1.21.1.jar"
+hash-format = "sha512"
+hash = "577e29b2d2487f5ea507a34bd236826b01ee37855af98385a8dfc5587fa3bb06201064c51c6005273357efade9a74381acb0e6703359e898a5da0c9a5fe47834"

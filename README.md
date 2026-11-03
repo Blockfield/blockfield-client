@@ -1,0 +1,67 @@
+# Клиентская сборка Blockfield
+
+Моды, конфигурации и ресурсы клиента Blockfield для Minecraft 1.21.1 / Fabric. Готовые дистрибутивы публикуются в [blockfield-releases](https://github.com/Blockfield/blockfield-releases).
+
+История переписана 2026-09-27: схемы WorldEdit удалены из всех коммитов (теперь они в приватном архиве `Blockfield/blockfield-schematics`), тег `v2.54.1` перенесён на отфильтрованный коммит. После сохранения локальных изменений старый клон можно обновить: `git fetch --force --tags --prune --prune-tags origin && git reset --hard origin/main` (или клонировать заново). Опубликованный `v2.54.1` остаётся в релизах и образах; побайтное восстановление из резервной копии проверено и описано в [HISTORY-RECOVERY.md](docs/HISTORY-RECOVERY.md).
+
+```sh
+python3 -m unittest discover -s tests -v
+just build --out dist
+```
+
+Нужны Python 3.12+ и авторизованный `gh` для приватных зависимостей. Шейдеры скачиваются с сайтов издателей по ссылкам и хешам из `shaderpacks/*.pw.toml`; ZIP-файлы в Git не хранятся. Моды закреплены URL и хешами в `mods/*.pw.toml`, архивы ганпака и схем WorldEdit — в `resources.lock.json`. JAR скачиваются из отдельных репозиториев; ресурсы R2 — по публичному HTTPS без ключей. В Git модпака бинарники не лежат.
+
+Blacksmith проверяет main и PR. Тег `vX.Y.Z` должен совпадать с `pack.toml`: он выпускает клиентские архивы и `Blockfield-web.tar` (дерево раздачи `dist/web`, детерминированный tar; его SHA256 есть в `SHA256SUMS` релиза). Образ раздачи больше не собирается: nginx живёт в [blockfield-distribution](https://github.com/Blockfield/blockfield-distribution) и раздаёт пак с хоста (`<pack-dir>`). Deploy client сверяет совместимость с фактически готовыми Game и стабильным редактором Workshop на одном образе и порте; тест, переход или ошибка запрещают деплой. Затем `scripts/pack-swap.py <tag>` скачивает `Blockfield-web.tar` из blockfield-releases, проверяет SHA256 и `build.json`, распаковывает в `releases/<tag>` и атомарно переставляет симлинк `current`; публичная проверка (`check-deployed.py`) и откат на прежний релиз занимают секунды, без rollout swarm. На хосте хранятся пять последних релизов. После этого разрешённый клиентский digest обновляется в обоих приложениях без перезапуска; частичная ошибка или рестарт восстанавливают оба gate. Latest публичного releases меняется только после успешного деплоя. Секреты Dokploy для раздачи не нужны. Схема и восстановление — `docs/DEPLOY.md` в blockfield-server. При смене контракта пак переключает Deploy server с `client_tag` после READY обоих приложений (порядок — в README сервера); Deploy client после него только проверяет пару, оба gate и ставит Latest.
+
+### Зеркала
+
+Файлы пака раздаются и с зеркал из `mirrors.json`: Gcore CDN тянет их с `blockfield.pro` по тем же путям,
+а Cloudflare R2 (`r2.blockfield.pro`, бакет `blockfield-pack`, объекты живут 30 дней) и релиз `files` в
+[blockfield-pack-mirror](https://github.com/Blockfield/blockfield-pack-mirror) хранят их под хешем, который
+объявляет пак. CI тега выгружает недостающие файлы до деплоя (`scripts/mirror-files.py`; на GitHub до 400
+за запуск, R2 — секреты `R2_PACK_ACCESS_KEY_ID`/`R2_PACK_SECRET_ACCESS_KEY` только на этот бакет). Выгрузка
+не блокирует выпуск: файла нет на зеркале — packwiz-installer берёт его из следующего источника. Сборка пишет
+`mirrors.json` в корень раздачи; installer сам выбирает самое быстрое зеркало у каждого игрока, а
+`blockfield.pro` остаётся последним источником ([подробности](tools/packwiz-installer/README.md)). Старые
+инстансы Prism получают зеркала после повторного импорта `Blockfield-prism.zip`.
+
+## Подключение
+
+Игрок подключается только по RakNet: `raknet;play.blockfield.pro:25566` (Raknetify, UDP),
+единственный адрес в `servers.dat`. Proxy отклоняет вход по TCP 25565 и оставляет его
+для status ping, см. [proxy README](<private-repo>#транспорт-клиента).
+Raknetify — клиентский мод; backend Fabric не требует его при подключении
+через Velocity. UDP 25565 остаётся голосовым чатом. `servers.dat` помечен `preserve`:
+у существующих установок старая запись «Blockfield (TCP)» остаётся и получает отказ proxy.
+
+`launcher.json` передаёт лаунчеру тот же `raknet;` адрес: лаунчер с 1.0.11 пингует
+статус по TCP 25565 того же хоста, а адрес quick-play отдаёт игре без изменений.
+
+Raknetify all-in-one — GPLv3; [исходники](https://github.com/RelativityMC/raknetify)
+и license/notices стороннего JAR сохраняются при распространении.
+
+## Совместимость
+
+Контракт — SHA256 общих модов (`side = "both"`), ресурсов ганпака, Minecraft/Fabric и `protocol` из `compatibility.json`. Клиентские моды, пользовательские конфиги и версия сборки на него не влияют. При несовместимом изменении сетевых сообщений Blockfield необходимо поднять `protocol` на обеих сторонах; хеш общих модов не заменяет это решение разработчика. Изменения общих модов требуют согласованного выпуска клиента и сервера.
+
+Для уже работающего сервера монолита есть узкое исключение по точному `server_runtime` и контракту 2.54.0. Новые серверы публикуют контракт сами. Пины клиента и сервера независимы; исходники друг друга не скачиваются.
+
+Исходники [ганпака](https://github.com/Blockfield/gucci-vuitton-attachment), [схем](https://github.com/Blockfield/blockfield-schematics) и [музыки](https://github.com/Blockfield/blockfield-music) приватны; опубликованные входы сборок доступны через https://assets.blockfield.pro. [Порядок чтения и публикации](https://github.com/Blockfield/blockfield-workspace/blob/main/docs/ASSETS.md). Перенос не меняет права сторонних авторов.
+
+## Проверки разработки
+
+Для Linux и Windows нужны Python 3.12+, Node.js 22 и Just 1.57.0.
+Инструменты проверок устанавливаются в кеш проекта.
+
+```sh
+just setup
+just check
+just format
+```
+
+`just setup` также включает версионированный pre-push хук (`.githooks/pre-push` через
+`core.hooksPath`): каждый push запускает `just lint` и `just format-check` без Gradle
+(обход только через `--no-verify`).
+`just --list` показывает команды сборки и разработки.
+
+Условия использования: [LICENSE](LICENSE).

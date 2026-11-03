@@ -1,0 +1,8 @@
+name = "Vanilla Backport (без музыки и пластинок)"
+filename = "VanillaBackport-fabric-1.21.1-1.1.7.10-bf3.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/vanilla-backport/releases/download/bf3/VanillaBackport-fabric-1.21.1-1.1.7.10-bf3.jar"
+hash-format = "sha512"
+hash = "38fb18ed9f7ab72f1df86465a8e6cbd507d03fa9190dfec711e2b13ead41de5892c1fccd1ba1e7c1c3af348275ef7b29901a93fd1bfb9c0b5393440be9a81318"

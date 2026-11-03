@@ -1,0 +1,13 @@
+name = "Keybind Fix Plus"
+filename = "keybindfixplus-2.0.0.jar"
+side = "both"
+
+[download]
+url = "https://cdn.modrinth.com/data/JKuinnWa/versions/jFW6823S/keybindfixplus-2.0.0.jar"
+hash-format = "sha512"
+hash = "8b965d4af240396d1f0ba88926732faa4efc12b25f47e72bc09e93b1ffdbf18dec83e5e1962ac5145c22b2f56365edddf8df2636b36a2196819c6e227e56dac9"
+
+[update]
+[update.modrinth]
+mod-id = "JKuinnWa"
+version = "jFW6823S"

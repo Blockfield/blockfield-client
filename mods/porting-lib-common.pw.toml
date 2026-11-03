@@ -1,0 +1,8 @@
+name = "Porting Lib Common"
+filename = "porting_lib_common-3.1.0-beta.90+1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/import-2.53.0/porting_lib_common-3.1.0-beta.90%2B1.21.1.jar"
+hash-format = "sha512"
+hash = "0a1398fb72164daa24b9b00871526e75d0213f34133d0e702707e60eaaf548e760146ce83ddd87df57a8487afc139ff6394ab407ea5c80e02c9636101d74fe2f"

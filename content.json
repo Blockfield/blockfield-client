@@ -1,0 +1,37 @@
+{
+  "brand": "BLOCKFIELD",
+  "brandSubtitle": "КОМАНДНЫЕ БОИ",
+  "chromeTitle": "BLOCKFIELD LAUNCHER",
+  "operationName": "BLOCKFIELD",
+  "season": "Minecraft 1.21.1 · Fabric",
+  "serverName": "BLOCKFIELD",
+  "serverIp": "play.blockfield.pro:25565",
+  "description": "Командные бои с захватом точек. Выбирайте доступный класс и снаряжение, занимайте позиции и сохраняйте билеты своей команды.",
+  "copyright": "2026 BLOCKFIELD",
+  "supportLabel": "ПОДДЕРЖКА",
+  "supportUrl": "https://discord.gg/cAUcpeCVDM",
+  "updateDescription": "Лаунчер проверяет файлы сборки и скачивает необходимые обновления.",
+  "feed": [],
+  "features": [
+    {
+      "icon": "flag",
+      "title": "ЗАХВАТ ТОЧЕК",
+      "desc": "Сражайтесь за контроль точек и сохраняйте билеты своей команды."
+    },
+    {
+      "icon": "swords",
+      "title": "КЛАССЫ",
+      "desc": "Штурмовик и марксман. Доступность инженера, снайпера и оператора FPV зависит от настроек и числа игроков."
+    },
+    {
+      "icon": "crosshair",
+      "title": "СНАРЯЖЕНИЕ",
+      "desc": "Выбирайте комплект оружия из вариантов, доступных вашему классу."
+    },
+    {
+      "icon": "flag",
+      "title": "ИГРОВОЕ МЕНЮ",
+      "desc": "Выбирайте комнату, класс и точку появления через меню в игре."
+    }
+  ]
+}

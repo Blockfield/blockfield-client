@@ -1,0 +1,8 @@
+name = "Porting Lib GameTest"
+filename = "porting_lib_gametest-3.1.0-beta.90+1.21.1.jar"
+side = "both"
+
+[download]
+url = "https://github.com/Blockfield/porting-lib/releases/download/import-2.53.0/porting_lib_gametest-3.1.0-beta.90%2B1.21.1.jar"
+hash-format = "sha512"
+hash = "60e49cd47a7d60c06e06961db075396ed87020369a5f1f1c794eccb00b1981e9cf453b12e119d182f29fb39a6c425f2cde041f00b74900259b026a7b27c24cb4"

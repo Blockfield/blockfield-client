@@ -1,0 +1,14 @@
+[
+  {
+    "url": "https://github.com/Blockfield/gucci-vuitton-attachment/releases/download/v1/gucci-vuitton-attachment.zip",
+    "r2-url": "s3://blockfield-assets/gucci-vuitton-attachment/v1/gucci-vuitton-attachment.zip",
+    "sha256": "1d3c7042a26e2ede691802d713e463ee0e64b40a50e4bbe36b0d02df9870ed11",
+    "prefix": "tacz/gucci_vuitton_attachment/"
+  },
+  {
+    "url": "https://github.com/Blockfield/blockfield-schematics/releases/download/v1/blockfield-schematics.zip",
+    "r2-url": "s3://blockfield-assets/schematics/v1/blockfield-schematics.zip",
+    "sha256": "beb4051bb0521f0df8fc8e0d00e47cfa1d96d9e8ed67e8934bce0250d9883aae",
+    "prefix": "config/worldedit/schematics/"
+  }
+]

@@ -1,0 +1,13 @@
+name = "JeremySeq's Damage Indicator"
+filename = "jeremyseqsdamageindicators-2.2.1-1.21.1-fabric.jar"
+side = "client"
+
+[download]
+url = "https://cdn.modrinth.com/data/SGJfwZzw/versions/jTn2oYV2/jeremyseqsdamageindicators-2.2.1-1.21.1-fabric.jar"
+hash-format = "sha512"
+hash = "2a763bad78ed76277fa2e6fbf4646d63181f9b3dc947b0166df573e819a1ca3cfceeb1625052e1a2e83b3c1e43940e0a7e02d927ff734abf0b3d900410cf1d56"
+
+[update]
+[update.modrinth]
+mod-id = "SGJfwZzw"
+version = "jTn2oYV2"
