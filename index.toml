@@ -147,7 +147,7 @@ preserve = true
 
 [[files]]
 file = "launcher.json"
-hash = "1b7579a81cfbd0d41840d0de147b5f0a305ef59b38ab5ae2e168636249e3052c"
+hash = "9e8e38ffdbc69669746062593904401dc1ab41037d139b494af3e2ac0cb90ad6"
 
 [[files]]
 file = "mods/accessories.pw.toml"

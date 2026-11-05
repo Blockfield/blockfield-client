@@ -18,6 +18,11 @@ from pathlib import PurePosixPath
 
 PUBLIC_R2_BASE_URL = "https://assets.blockfield.pro"
 
+# A dead host must fail in seconds, not minutes: CI once hung on a pack fetch
+# while the pack host was down. urllib applies this to the connect and to every
+# read; retries stay for transient GitHub/R2 failures.
+FETCH_TIMEOUT = 20
+
 
 def require_zip_compressor():
     if (zlib.ZLIB_VERSION, zlib.ZLIB_RUNTIME_VERSION) != ("1.3.2", "1.3.2"):
@@ -119,7 +124,7 @@ def fetch_bytes(url):
             timeout=600,
         )
     request = urllib.request.Request(url, headers={"User-Agent": "Blockfield-CI/1.0"})
-    with urllib.request.urlopen(request, timeout=120) as response:
+    with urllib.request.urlopen(request, timeout=FETCH_TIMEOUT) as response:
         return response.read()
 
 
