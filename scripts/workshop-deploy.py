@@ -9,6 +9,10 @@ Game-only mode (wait-game / wait-rollback-game, game_only=True) verifies the
 running Game container, image digest and READY record without reading the
 Workshop controller or Workshop data at all: a down, asleep or mid-transition
 Workshop never blocks a Game deploy or its rollback.
+
+Host paths and service names come from the environment (set on the deploy host):
+BLOCKFIELD_WORKSHOP_STATUS, BLOCKFIELD_BACKEND_LOCK, BLOCKFIELD_GAME_SERVICE,
+BLOCKFIELD_GAME_DATA, BLOCKFIELD_WORKSHOP_SERVICE, BLOCKFIELD_WORKSHOP_DATA.
 """
 
 import hashlib
@@ -23,11 +27,26 @@ from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
-STATUS = Path("/srv/minecraft/workshop/admin/status.json")
-LOCK = Path("/srv/minecraft/backend-lock")
+
+def _required_env(name):
+    # Host-specific deployment config lives on the deploy host, not in this repo.
+    value = os.environ.get(name)
+    if not value:
+        raise SystemExit(f"{name} is required")
+    return value
+
+
+STATUS = Path(_required_env("BLOCKFIELD_WORKSHOP_STATUS"))
+LOCK = Path(_required_env("BLOCKFIELD_BACKEND_LOCK"))
 APPS = {
-    "game": ("blockfield-server-lfcxy0", Path("/srv/minecraft/lobby")),
-    "workshop": ("blockfield-workshop-5jx22e", Path("/srv/minecraft/workshop/data")),
+    "game": (
+        _required_env("BLOCKFIELD_GAME_SERVICE"),
+        Path(_required_env("BLOCKFIELD_GAME_DATA")),
+    ),
+    "workshop": (
+        _required_env("BLOCKFIELD_WORKSHOP_SERVICE"),
+        Path(_required_env("BLOCKFIELD_WORKSHOP_DATA")),
+    ),
 }
 TAG = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
@@ -523,9 +542,7 @@ def snapshot(tag=None, digest=None, workshop_only=False, game_only=False):
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
             raise ValueError("Expected immutable image digest")
         image = json.loads(docker("image", "inspect", primary["container"]["Image"]))[0]
-        if "ghcr.io/blockfield/blockfield-server@" + digest not in (
-            image.get("RepoDigests") or []
-        ):
+        if SERVER_REPOSITORY + "@" + digest not in (image.get("RepoDigests") or []):
             raise Pending(
                 f"{'Game' if 'game' in apps else 'Workshop'} image does not carry the requested digest"
             )

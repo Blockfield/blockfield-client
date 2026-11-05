@@ -28,14 +28,30 @@ except ImportError:
     fcntl = None
 
 REGISTRY = "ghcr.io/blockfield/"
+
+
+def _required_env(name):
+    # Dokploy app names and log directories live on the deploy host, not in this repo.
+    value = os.environ.get(name)
+    if not value:
+        raise SystemExit(f"{name} is required")
+    return value
+
+
 # Dokploy app name (= swarm service and log directory) and the repository secret holding its webhook URL.
 APPS = {
-    "blockfield-server": ("blockfield-server-lfcxy0", "DOKPLOY_SERVER_WEBHOOK"),
-    "blockfield-proxy": ("blockfield-proxy-niocmj", "DOKPLOY_PROXY_WEBHOOK"),
+    "blockfield-server": (
+        _required_env("BLOCKFIELD_SERVER_APP"),
+        "DOKPLOY_SERVER_WEBHOOK",
+    ),
+    "blockfield-proxy": (
+        _required_env("BLOCKFIELD_PROXY_APP"),
+        "DOKPLOY_PROXY_WEBHOOK",
+    ),
 }
 TAG = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
-LOGS = Path("/etc/dokploy/logs")
+LOGS = Path(_required_env("BLOCKFIELD_DOKPLOY_LOGS"))
 # One channel move and rollout at a time on the deploy host, whichever repository runs it.
 LOCK = "/tmp/blockfield-deploy.lock"
 # Held for a whole server or client deploy (validation to rollback), so the pair is never checked by one job and

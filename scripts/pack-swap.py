@@ -25,7 +25,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 check = __import__("check-deployed")
 
-ROOT = Path(os.environ.get("BLOCKFIELD_PACK_ROOT", "/srv/blockfield/pack"))
+
+def _required_env(name):
+    # The pack root lives on the distribution host, not in this repo.
+    value = os.environ.get(name)
+    if not value:
+        raise SystemExit(f"{name} is required")
+    return value
+
+
+ROOT = Path(_required_env("BLOCKFIELD_PACK_ROOT"))
 BASE = "https://github.com/Blockfield/blockfield-releases/releases/download"
 ASSET = "Blockfield-web.tar"
 TAG = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+")
