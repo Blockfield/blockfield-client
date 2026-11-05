@@ -68,7 +68,9 @@ class ClientBuildTests(unittest.TestCase):
                     self.assertEqual(
                         request.headers, {"User-agent": "Blockfield-CI/1.0"}
                     )
-                    self.assertEqual(fetch.call_args.kwargs, {"timeout": 120})
+                    self.assertEqual(
+                        fetch.call_args.kwargs, {"timeout": packlib.FETCH_TIMEOUT}
+                    )
             fetch.reset_mock()
             for url in (
                 "s3://example-invalid-bucket/file",
@@ -84,6 +86,66 @@ class ClientBuildTests(unittest.TestCase):
                     packlib.get_bytes(url)
             fetch.assert_not_called()
             external.assert_not_called()
+
+    def test_fetch_timeout_fails_dead_hosts_in_seconds(self):
+        self.assertLessEqual(packlib.FETCH_TIMEOUT, 30)
+
+    def test_ci_installers_come_from_immutable_sources(self):
+        launcher = json.loads((ROOT / "launcher.json").read_text())
+        for key in ("installer", "bootstrap"):
+            with self.subTest(key=key):
+                self.assertTrue(
+                    launcher[key]["source"].startswith("https://github.com/")
+                )
+
+    def test_update_launcher_json_keeps_immutable_installer_sources(self):
+        launcher_spec = importlib.util.spec_from_file_location(
+            "update_launcher_json", ROOT / "scripts/update-launcher-json.py"
+        )
+        launcher = importlib.util.module_from_spec(launcher_spec)
+        launcher_spec.loader.exec_module(launcher)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "packwiz-installer.jar").write_bytes(b"new-installer")
+            (root / "packwiz-installer-bootstrap.jar").write_bytes(b"new-bootstrap")
+            (root / "launcher.json").write_text(
+                json.dumps(
+                    {
+                        "installer": {
+                            "url": "https://example.test/packwiz-installer.jar",
+                            "source": "https://example.test/immutable-installer.jar",
+                            "sha256": "old",
+                        },
+                        "bootstrap": {
+                            "url": "https://example.test/packwiz-installer-bootstrap.jar",
+                            "sha256": "old",
+                        },
+                    }
+                )
+            )
+            with (
+                patch.object(launcher, "ROOT", root),
+                patch.object(
+                    launcher,
+                    "adoptium",
+                    return_value={
+                        "version": "21",
+                        "url": "https://example.test/jre",
+                        "sha256": "jre",
+                        "size": 1,
+                    },
+                ),
+            ):
+                launcher.main()
+            data = json.loads((root / "launcher.json").read_text())
+            self.assertEqual(
+                data["installer"]["source"],
+                "https://example.test/immutable-installer.jar",
+            )
+            self.assertNotIn("source", data["bootstrap"])
+            self.assertEqual(
+                data["bootstrap"]["sha256"], packlib.digest(b"new-bootstrap")
+            )
 
     def test_build_rejects_compressor_drift_before_loading_inputs(self):
         with patch.object(packlib.zlib, "ZLIB_RUNTIME_VERSION", "1.3.1"):

@@ -36,20 +36,34 @@ def adoptium(os_, arch):
     }
 
 
-installer = ROOT / "packwiz-installer.jar"
-bootstrap = ROOT / "packwiz-installer-bootstrap.jar"
-data = {
-    "pack": f"{BASE}/pack.toml",
-    "server": "raknet;play.blockfield.pro:25566",
-    "installer": {
-        "url": f"{BASE}/packwiz-installer.jar",
-        "sha256": hashlib.sha256(installer.read_bytes()).hexdigest(),
-    },
-    "bootstrap": {
-        "url": f"{BASE}/packwiz-installer-bootstrap.jar",
-        "sha256": hashlib.sha256(bootstrap.read_bytes()).hexdigest(),
-    },
-    "java": {key: adoptium(*v) for key, v in PLATFORMS.items()},
-}
-(ROOT / "launcher.json").write_text(json.dumps(data, indent=2) + "\n")
-print(json.dumps({k: v["version"] for k, v in data["java"].items()}, indent=1))
+def main():
+    # CI builds installers from "source" (immutable release asset), never from
+    # the pack host: keep existing entries so regenerating cannot revert that.
+    old = (
+        json.loads((ROOT / "launcher.json").read_text())
+        if (ROOT / "launcher.json").exists()
+        else {}
+    )
+
+    def entry(key, filename):
+        data = {
+            "url": f"{BASE}/{filename}",
+            "sha256": hashlib.sha256((ROOT / filename).read_bytes()).hexdigest(),
+        }
+        if "source" in old.get(key, {}):
+            data["source"] = old[key]["source"]
+        return data
+
+    data = {
+        "pack": f"{BASE}/pack.toml",
+        "server": "raknet;play.blockfield.pro:25566",
+        "installer": entry("installer", "packwiz-installer.jar"),
+        "bootstrap": entry("bootstrap", "packwiz-installer-bootstrap.jar"),
+        "java": {key: adoptium(*v) for key, v in PLATFORMS.items()},
+    }
+    (ROOT / "launcher.json").write_text(json.dumps(data, indent=2) + "\n")
+    print(json.dumps({k: v["version"] for k, v in data["java"].items()}, indent=1))
+
+
+if __name__ == "__main__":
+    main()

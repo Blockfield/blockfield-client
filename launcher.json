@@ -8,6 +8,7 @@
   },
   "bootstrap": {
     "url": "https://blockfield.pro/packwiz-installer-bootstrap.jar",
+    "source": "https://github.com/packwiz/packwiz-installer-bootstrap/releases/download/v0.0.3/packwiz-installer-bootstrap.jar",
     "sha256": "a8fbb24dc604278e97f4688e82d3d91a318b98efc08d5dbfcbcbcab6443d116c"
   },
   "java": {

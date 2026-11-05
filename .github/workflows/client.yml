@@ -3,22 +3,14 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
-  # Bot-gate (enforcing): PR CI runs only when the GitHub App
-  # `blockfield-review-bot[bot]` approves the CURRENT head SHA. Pushes to a PR
-  # branch fire no workflow run at all; only the bot's APPROVED `pull_request_review`
-  # (submitted) starts a runner. Any other review matches the trigger but skips
-  # every job at the job-level `if:`, so the run is all-skipped and bills
-  # 0 minutes. A stale approval (push between the
-  # review and the run) is rejected by the commit_id == head SHA check below.
-  # Draft PRs get no bot verdict, so no CI runs until the PR is marked ready.
-  # Merge protection pairs this gate with the bot's own `bot-review` commit
-  # status on the head SHA (success = approved, failure = changes requested):
-  # require `bot-gate` + `check` + `bot-review` on main (see task report).
-  pull_request_review:
-    types: [submitted]
-  # Maintainer-only manual override (no bot verdict needed): run it from the
-  # PR branch and record why. Ordinary contributors cannot bypass the gate
-  # with this; misuse is visible in the run history.
+  # PR CI starts on push to the PR branch: no bot approval needed to run.
+  # The bot still posts its own `bot-review` commit status, which merge
+  # protection may require alongside `check` (see task report).
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore: ["**.md", "docs/**", "release-notes/**"]
+  # Maintainer-only manual run: run it from the PR branch and record why.
+  # Misuse is visible in the run history.
   workflow_dispatch:
     inputs:
       release_text_tag:
@@ -32,100 +24,60 @@ on:
 permissions:
   contents: read
   actions: read # main-push path looks up the green check run for this tree
-  pull-requests: read # bot-gate reads blockfield-review-bot verdicts on the head SHA
+  pull-requests: read # same-tree lookup reads PR metadata
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ (github.event_name == 'pull_request_review' && (github.event.review.user.login != 'blockfield-review-bot[bot]' || github.event.review.state != 'approved')) && 'review-noise' || 'gate' }}
-  # A review must never cancel the run it gates; pushes to main queue behind
-  # the running one instead of cancelling it. Queued runs each evaluate their
-  # own event's head SHA and attach their results there, so a stale-head run
-  # can never report green on the current head.
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # PR pushes cancel superseded runs; pushes to main queue behind the running
+  # one instead of cancelling it, so a merge always gets a full result.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  bot-gate:
-    name: ${{ (github.event_name == 'pull_request_review' && (github.event.review.user.login != 'blockfield-review-bot[bot]' || github.event.review.state != 'approved')) && 'bot-gate (skipped review)' || 'bot-gate' }}
-    # Enforcing: `check` runs on a PR head only when this job reports
-    # verdict=permit with sha_match=true for the CURRENT head SHA, resolved
-    # from the API at gate runtime (a push may have landed after the
-    # triggering review event was created; the event payload would still name
-    # the old head). The event head must equal the runtime head, and the
-    # bot's latest verdict-bearing review on that SHA must be APPROVED.
-    # Anything else (stale event, no verdict yet, REQUEST_CHANGES, DISMISSED,
-    # a verdict on an older SHA) skips `check`, so the gate fails closed.
-    # Always exits 0: denial is expressed through the outputs, and the bot's
-    # own `bot-review` commit status blocks merge.
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    if: github.event_name == 'pull_request_review' && github.event.review.user.login == 'blockfield-review-bot[bot]' && github.event.review.state == 'approved'
-    outputs:
-      verdict: ${{ steps.gate.outputs.verdict }}
-      sha_match: ${{ steps.gate.outputs.sha_match }}
-      sha: ${{ steps.gate.outputs.sha }}
-    steps:
-      - name: Evaluate blockfield-review-bot verdict for the current PR head SHA
-        id: gate
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          EVENT_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -u
-          bot='blockfield-review-bot[bot]'
-          repo="${{ github.repository }}"
-          # Current head, not the event snapshot: the review that triggered
-          # this run may predate a newer push. Only the still-current head
-          # may pass; a stale event waits for the newer review's run.
-          HEAD_SHA=$(gh api "repos/$repo/pulls/$PR_NUMBER" --jq '.head.sha')
-          verdict=deny-awaiting
-          sha_match=false
-          if [ "$EVENT_SHA" = "$HEAD_SHA" ]; then
-            # Latest verdict-bearing bot review on the current head,
-            # aggregated across API pages (gh --jq applies per page).
-            # COMMENTED reviews carry no verdict and are excluded, so a later
-            # comment cannot override an earlier verdict. (jq is preinstalled
-            # on the runner. The head SHA is spliced in; gh --jq takes no
-            # variable arguments.)
-            state=$(gh api "repos/$repo/pulls/$PR_NUMBER/reviews" --paginate               --jq '[.[] | select(.user.login == "'"$bot"'" and .commit_id == "'"$HEAD_SHA"'")]'               | jq -r -s '[add[] | select(.state != "COMMENTED")] | sort_by(.id) | last | .state // empty')
-            # The API returns uppercase states ("APPROVED"); normalize anyway.
-            state=$(printf '%s' "$state" | tr '[:lower:]' '[:upper:]')
-            case "$state" in
-              APPROVED)
-                verdict=permit
-                sha_match=true
-                ;;
-              # CHANGES_REQUESTED -> deny; DISMISSED / empty stay
-              # deny-awaiting (fail-closed).
-              CHANGES_REQUESTED) verdict=deny ;;
-            esac
-          fi
-          # `sha` always names the evaluated runtime head so logs and the
-          # checkout below agree on what was gated.
-          echo "event=${EVENT_SHA:0:12} head=${HEAD_SHA:0:12} bot_state=${state:-none} verdict=$verdict sha_match=$sha_match"
-          {
-            echo "verdict=$verdict"
-            echo "sha_match=$sha_match"
-            echo "sha=$HEAD_SHA"
-          } >> "$GITHUB_OUTPUT"
-  check:
-    name: ${{ (github.event_name == 'pull_request_review' && (github.event.review.user.login != 'blockfield-review-bot[bot]' || github.event.review.state != 'approved')) && 'check (skipped review)' || 'check' }}
-    # Notes-regeneration dispatches skip the build; main/tag pushes and other
-    # maintainer dispatches always run; PR heads run only on a gate permit
-    # for the exact head SHA. `always()` keeps push CI working even though
-    # `bot-gate` is skipped on push.
-    needs: [bot-gate]
-    if: always() && inputs.release_text_tag == '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (needs.bot-gate.outputs.verdict == 'permit' && needs.bot-gate.outputs.sha_match == 'true'))
+  # Fast, secret-free signal (~1 min: lint, format, tests, compile checks).
+  # Runs beside the network-bound build instead of serially before it.
+  lint:
+    # Notes-regeneration dispatches skip CI; everything else
+    # (main/tag pushes, PR heads, maintainer dispatches) always runs.
+    if: always() && inputs.release_text_tag == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request_review' && needs.bot-gate.outputs.sha || github.sha }}
           persist-credentials: false
           # `${{ cond && 0 || 1 }}` is always 1: 0 is falsy, and the pin check needs the tags of the range.
           fetch-depth: 0
           fetch-tags: true
-      # Main pushes usually merge a tree a green PR run already tested; tags always run full.
-      # Review runs check out the head SHA (pinned below), so the recorded
-      # tree is the head tree.
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12.10"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22.23.2"
+      - name: Cache pinned project tools
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .cache/quality
+            .dev/jdk
+          key: quality-tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('scripts/toolchain.py', 'scripts/quality.py', 'dev/quality.py') }}
+      - run: python -I -X utf8 scripts/toolchain.py --ci
+      - run: just check
+  # Network-bound pack build (downloads every mod jar): the critical path.
+  # Main pushes usually merge a tree a green PR run already tested; tags always run full.
+  build:
+    # Notes-regeneration dispatches skip the build; everything else
+    # (main/tag pushes, PR heads, maintainer dispatches) always runs.
+    if: always() && inputs.release_text_tag == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # `${{ cond && 0 || 1 }}` is always 1: 0 is falsy, and the pin check needs the tags of the range.
+          fetch-depth: 0
+          fetch-tags: true
+      # PR runs check out the prospective merge commit, so the recorded
+      # tree is the merge tree.
       - name: Check for green run of the same tree
         id: same
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -162,8 +114,6 @@ jobs:
             .dev/jdk
           key: quality-tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('scripts/toolchain.py', 'scripts/quality.py', 'dev/quality.py') }}
       - run: python -I -X utf8 scripts/toolchain.py --ci
-        if: steps.same.outputs.tested != 'true'
-      - run: just check
         if: steps.same.outputs.tested != 'true'
       - name: Build and verify pinned client
         if: steps.same.outputs.tested != 'true'
@@ -245,21 +195,38 @@ jobs:
       # compares trees, so all shapes dedupe correctly).
       - name: Record tested merge tree
         id: tree
-        if: github.event_name == 'pull_request_review' || github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         run: |
           tree=$(git rev-parse "HEAD^{tree}")
           echo "$tree" > tested-tree.txt
           echo "tree=$tree" >> "$GITHUB_OUTPUT"
       - name: Upload tested merge tree
-        if: github.event_name == 'pull_request_review' || github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: tested-tree-${{ steps.tree.outputs.tree }}
           path: tested-tree.txt
           retention-days: 7
           if-no-files-found: error
+  # Single required status for branch protection: green only when both
+  # parallel jobs are. No checkout: the verdict is pure needs inspection.
+  check:
+    name: check
+    needs: [lint, build]
+    if: always() && inputs.release_text_tag == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Require green lint and build
+        run: |
+          for result in '${{ needs.lint.result }}' '${{ needs.build.result }}'; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "::error::lint/build result: $result"; exit 1 ;;
+            esac
+          done
   release-text:
-    name: ${{ (github.event_name == 'pull_request_review' && (github.event.review.user.login != 'blockfield-review-bot[bot]' || github.event.review.state != 'approved')) && 'release-text (skipped review)' || 'release-text' }}
+    name: release-text
     # For a published tag whose tag run stopped before "Release text" (e.g. cancelled):
     # regenerates and publishes only the notes, never rebuilds or republishes the pack.
     if: inputs.release_text_tag != ''
@@ -300,7 +267,7 @@ jobs:
           gh release upload "$TAG" --repo Blockfield/blockfield-releases --clobber "${files[@]}"
           gh release edit "$TAG" --repo Blockfield/blockfield-releases --notes-file dist/release-notes.md
   deploy:
-    name: ${{ (github.event_name == 'pull_request_review' && (github.event.review.user.login != 'blockfield-review-bot[bot]' || github.event.review.state != 'approved')) && 'deploy (skipped review)' || 'deploy' }}
+    name: deploy
     permissions:
       contents: read
     if: ${{ always() && needs.check.result == 'success' && startsWith(github.ref, 'refs/tags/v') }}
