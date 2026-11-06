@@ -40,6 +40,103 @@ class ClientBuildTests(unittest.TestCase):
         # 903 kept + 102 new would pass 900: the oldest stale assets go first, live ones never.
         self.assertEqual(delete, [0, 1, 2, 3, 4])
 
+    def test_github_mirror_never_prunes_retained_release_files(self):
+        staged = {f"h{i}" for i in range(1000)}
+        existing = {f"old{i}": (i, f"2026-10-{10 + i:02}") for i in range(5)}
+        existing |= {f"h{i}": (100 + i, "2026-10-01") for i in range(898)}
+        upload, delete = mirror_files.plan(
+            existing, staged, retain={"old0", "old1", "old2", "old3", "old4"}
+        )
+        self.assertEqual(delete, [])
+        existing |= {f"extra{i}": (200 + i, "2026-09-01") for i in range(10)}
+        upload, delete = mirror_files.plan(
+            existing, staged, retain={"old0", "old1", "old2", "old3", "old4"}
+        )
+        self.assertEqual(
+            sorted(delete), [200, 201, 202, 203, 204, 205, 206, 207, 208, 209]
+        )
+
+    def test_recent_release_tags_picks_last_five_version_tags(self):
+        names = [
+            "v2.79.2",
+            "files",
+            "v2.79.1",
+            "latest",
+            "v2.79.0",
+            "v2.78.9",
+            "v2.78.8",
+            "v2.78.7",
+            "v2.78.6",
+        ]
+        self.assertEqual(
+            mirror_files.select_release_tags(names, 5, skip={"v2.79.2"}),
+            ["v2.79.1", "v2.79.0", "v2.78.9", "v2.78.8", "v2.78.7"],
+        )
+        self.assertEqual(
+            mirror_files.select_release_tags(names, 5),
+            ["v2.79.2", "v2.79.1", "v2.79.0", "v2.78.9", "v2.78.8"],
+        )
+
+    def test_manifest_lists_sorted_mirror_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web = Path(tmp) / "web"
+            web.mkdir()
+            out = Path(tmp) / "manifest.txt"
+            with patch.dict(
+                mirror_files.__dict__,
+                {"mirror_files": lambda w: {"c1": w / "a", "deadbeef": w / "b"}},
+            ):
+                keys = mirror_files.write_manifest(web, out)
+            self.assertEqual(keys, ["c1", "deadbeef"])
+            self.assertEqual(out.read_text().splitlines(), ["c1", "deadbeef"])
+
+    def test_retain_dry_run_lists_kept_releases(self):
+        out = io.StringIO()
+        with (
+            patch.object(
+                mirror_files, "recent_release_tags", return_value=["v2.79.1", "v2.79.0"]
+            ),
+            patch.object(
+                mirror_files,
+                "manifest_keys_for",
+                side_effect=lambda tag, repo: {f"hash-of-{tag}"},
+            ),
+            patch("sys.stdout", new=out),
+        ):
+            retained = mirror_files.retain(
+                {"current-hash"}, dry_run=True, skip={"v2.79.2"}
+            )
+        text = out.getvalue()
+        self.assertIn("v2.79.1", text)
+        self.assertIn("v2.79.0", text)
+        self.assertEqual(
+            retained, {"current-hash", "hash-of-v2.79.1", "hash-of-v2.79.0"}
+        )
+
+    def test_github_mirror_release_uses_releases_repo_for_retention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "newhash").write_text("x")
+            with (
+                patch.object(
+                    mirror_files.subprocess,
+                    "check_output",
+                    return_value="",
+                ) as api,
+                patch.object(mirror_files.subprocess, "run") as run,
+                patch.object(
+                    mirror_files, "retain", return_value={"newhash"}
+                ) as retain_call,
+            ):
+                mirror_files.github(
+                    out, "Blockfield/blockfield-pack-mirror", "files", "v2.79.2"
+                )
+        retain_call.assert_called_once_with(
+            {"newhash"}, skip={"v2.79.2"}, dry_run=True, verbose=False
+        )
+        self.assertEqual(api.call_count, 2)
+        self.assertEqual(run.call_count, 1)
+
     def test_r2_download_uses_public_https_and_rejects_unsafe_urls(self):
         with (
             patch.object(packlib.urllib.request, "urlopen") as fetch,

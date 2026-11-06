@@ -16,10 +16,14 @@ Blacksmith проверяет main и PR. Тег `vX.Y.Z` должен совп�
 ### Зеркала
 
 Файлы пака раздаются и с зеркал из `mirrors.json`: Gcore CDN тянет их с `blockfield.pro` по тем же путям,
-а Cloudflare R2 (`r2.blockfield.pro`, бакет `blockfield-pack`, объекты живут 30 дней) и релиз `files` в
+а Cloudflare R2 (`r2.blockfield.pro`, бакет `blockfield-pack`, lifecycle удаляет
+объекты через 30 дней после загрузки) и релиз `files` в
 [blockfield-pack-mirror](https://github.com/Blockfield/blockfield-pack-mirror) хранят их под хешем, который
 объявляет пак. CI тега выгружает недостающие файлы до деплоя (`scripts/mirror-files.py`; на GitHub до 400
-за запуск, R2 — секреты `R2_PACK_ACCESS_KEY_ID`/`R2_PACK_SECRET_ACCESS_KEY` только на этот бакет). Выгрузка
+за запуск, R2 — секреты `R2_PACK_ACCESS_KEY_ID`/`R2_PACK_SECRET_ACCESS_KEY` только на этот бакет), публикует
+`mirror-manifest.txt` (ключи зеркал релиза) и обновляет объекты пяти последних релизов, чтобы откат всегда
+нашёл их на зеркалах: R2 — server-side touch (перезапуск 30-дневного счётчика), GitHub — запрет удаления
+(`retain` в `mirror-files.py`; старые релизы без манифеста доезжают по мере выхода новых). Выгрузка
 не блокирует выпуск: файла нет на зеркале — packwiz-installer берёт его из следующего источника. Сборка пишет
 `mirrors.json` в корень раздачи; installer сам выбирает самое быстрое зеркало у каждого игрока, а
 `blockfield.pro` остаётся последним источником ([подробности](tools/packwiz-installer/README.md)). Старые

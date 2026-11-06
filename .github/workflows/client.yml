@@ -138,7 +138,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
         run: |
-          files=(dist/Blockfield-client.zip dist/Blockfield-prism.zip dist/Blockfield.mrpack dist/Blockfield-web.tar dist/web/build.json dist/SHA256SUMS)
+          just python scripts/mirror-files.py manifest dist/web dist/mirror-manifest.txt
+          files=(dist/Blockfield-client.zip dist/Blockfield-prism.zip dist/Blockfield.mrpack dist/Blockfield-web.tar dist/web/build.json dist/SHA256SUMS dist/mirror-manifest.txt)
           gh release upload "$GITHUB_REF_NAME" --repo Blockfield/blockfield-releases --clobber "${files[@]}"
       # Before deploy: packwiz-installer may take any file from these mirrors once the new index is live.
       # Mirrors are best effort: a file missing there comes from the next source, ultimately blockfield.pro.
@@ -156,12 +157,26 @@ jobs:
           RCLONE_CONFIG_PACK_ENDPOINT: https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com
           RCLONE_CONFIG_PACK_NO_CHECK_BUCKET: "true"
         run: just python scripts/quality.py run rclone copy dist/mirror pack:blockfield-pack --ignore-existing --transfers 8
+      # R2 expires untouched objects 30 days after upload: refresh everything the
+      # last releases still need so a rollback target stays downloadable (S3).
+      - name: Retain last releases on the R2 mirror
+        if: github.ref_type == 'tag'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
+          RCLONE_CONFIG_PACK_TYPE: s3
+          RCLONE_CONFIG_PACK_PROVIDER: Cloudflare
+          RCLONE_CONFIG_PACK_ACCESS_KEY_ID: ${{ secrets.R2_PACK_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_PACK_SECRET_ACCESS_KEY: ${{ secrets.R2_PACK_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_PACK_ENDPOINT: https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com
+          RCLONE_CONFIG_PACK_NO_CHECK_BUCKET: "true"
+        run: just python scripts/mirror-files.py retain --tag "$GITHUB_REF_NAME" --staged-dir dist/mirror --remote pack:blockfield-pack
       - name: Publish files to the GitHub mirror
         if: github.ref_type == 'tag'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
-        run: just python scripts/mirror-files.py github dist/mirror Blockfield/blockfield-pack-mirror files
+        run: just python scripts/mirror-files.py github dist/mirror Blockfield/blockfield-pack-mirror files "$GITHUB_REF_NAME"
       - name: Release text
         if: github.ref_type == 'tag'
         uses: Blockfield/blockfield-workspace/.github/actions/release-text@2f20c9e9f66ddf63fbb59196c1ab69cfe30356d2

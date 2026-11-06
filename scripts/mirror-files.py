@@ -10,9 +10,11 @@ the GitHub mirror release keep every file under that name, shared by all release
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 import urllib.parse
 from pathlib import Path
@@ -20,6 +22,16 @@ from pathlib import Path
 # GitHub allows about 500 content-creating requests an hour and 1000 assets per release.
 UPLOADS_PER_RUN = 400
 ASSETS_KEPT = 900
+
+# R2 bucket blockfield-pack expires objects 30 days after upload (Cloudflare
+# dashboard lifecycle, not codable in repo). Mirror objects are hash-named and
+# immutable, and CI uploads with --ignore-existing, so without a refresh even the
+# current release would rot away. Each tag release publishes MANIFEST_ASSET with
+# its mirror keys; retain() refreshes every object the last RETAIN_RELEASES
+# releases need, which exempts the rollback window from the 30-day expiry.
+RELEASES_REPO = "Blockfield/blockfield-releases"
+MANIFEST_ASSET = "mirror-manifest.txt"
+RETAIN_RELEASES = 5
 
 
 def mirror_files(web):
@@ -48,19 +60,155 @@ def stage(web, out):
     print(f"Staged {len(list(out.iterdir()))} files in {out}")
 
 
-def plan(existing, staged):
-    """(names to upload, asset ids to delete) for one run; existing maps name to (id, created_at)."""
+def plan(existing, staged, retain=()):
+    """(names to upload, asset ids to delete) for one run; existing maps name to (id, created_at).
+
+    retain holds mirror keys the last releases still need: they are never
+    deleted, even when the mirror is over ASSETS_KEPT.
+    """
     upload = sorted(set(staged) - set(existing))[:UPLOADS_PER_RUN]
     stale = sorted(
         (created, asset)
         for name, (asset, created) in existing.items()
-        if name not in staged
+        if name not in staged and name not in retain
     )
     excess = len(existing) + len(upload) - ASSETS_KEPT
     return upload, [asset for _, asset in stale[: max(0, excess)]]
 
 
-def github(out, repo, tag):
+def write_manifest(web, out):
+    """Sorted mirror keys of a built web tree, published as a release asset."""
+    keys = sorted(mirror_files(web))
+    out.write_text("".join(f"{key}\n" for key in keys), encoding="utf-8")
+    print(f"Wrote {len(keys)} mirror keys to {out}")
+    return keys
+
+
+def select_release_tags(names, limit, skip=()):
+    """Newest-first version tags from a `gh release list` order, minus skip."""
+    tags = [
+        name
+        for name in names
+        if name not in skip and re.fullmatch(r"v\d+\.\d+\.\d+", name)
+    ]
+    return tags[:limit]
+
+
+def recent_release_tags(limit, repo=RELEASES_REPO, skip=()):
+    """Newest-first release tags of repo (best effort: [] when gh fails)."""
+    try:
+        listing = subprocess.check_output(
+            [
+                "gh",
+                "release",
+                "list",
+                "--repo",
+                repo,
+                "--limit",
+                str(max(limit + len(skip) + 5, 10)),
+                "--json",
+                "tagName",
+                "--jq",
+                ".[].tagName",
+            ],
+            text=True,
+        )
+    except subprocess.SubprocessError as error:
+        print(f"Could not list releases of {repo}: {error}")
+        return []
+    return select_release_tags(listing.splitlines(), limit, skip)
+
+
+def manifest_keys_for(tag, repo=RELEASES_REPO):
+    """Mirror keys a release needs (best effort: empty when the asset is missing)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            subprocess.run(
+                [
+                    "gh",
+                    "release",
+                    "download",
+                    tag,
+                    "--repo",
+                    repo,
+                    "--pattern",
+                    MANIFEST_ASSET,
+                    "--dir",
+                    tmp,
+                    "--clobber",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return {
+                line.strip()
+                for line in Path(tmp, MANIFEST_ASSET).read_text().splitlines()
+                if line.strip()
+            }
+        except (subprocess.SubprocessError, OSError) as error:
+            print(f"No manifest for {tag} (pre-retention release?): {error}")
+            return set()
+
+
+def retain(
+    staged,
+    repo=RELEASES_REPO,
+    skip=(),
+    keep=RETAIN_RELEASES,
+    dry_run=False,
+    remote=None,
+    verbose=True,
+):
+    """Refresh R2 objects the last keep releases need; dry_run only lists them.
+
+    Returns the retained key set. Refresh is a server-side touch (new
+    LastModified, no bytes moved), so the 30-day lifecycle restarts for exactly
+    the rollback window. staged is the current release's key set (kept too).
+    """
+    tags = recent_release_tags(keep - 1, repo, skip) if keep > 1 else []
+    retained = set(staged)
+    for tag in tags:
+        retained |= manifest_keys_for(tag, repo)
+    kept = sorted([*skip, *tags])
+    print(f"Keeping {len(retained)} mirror objects for releases: {', '.join(kept)}")
+    if dry_run and verbose:
+        for key in sorted(retained):
+            print(f"  keep {key}")
+        return retained
+    if dry_run:
+        return retained
+    rclone = shutil.which("rclone") or os.environ.get("RCLONE_BIN")
+    if rclone is None:
+        try:
+            # -I drops the script dir from sys.path; restore it for the import.
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            from toolchain import tool
+
+            rclone = str(tool("rclone"))
+        except Exception as error:
+            raise SystemExit(f"no rclone available: {error}")
+    errors = 0
+    for key in sorted(retained):
+        result = subprocess.run(
+            [rclone, "touch", f"{remote}:{key}"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            errors += 1
+            print(f"touch failed for {key}: {result.stderr.strip()}")
+    print(
+        f"Refreshed {len(retained) - errors}/{len(retained)} mirror objects on {remote}"
+    )
+    if errors and errors == len(retained):
+        raise SystemExit(
+            f"All {len(retained)} touches failed; R2 retention not refreshed"
+        )
+    return retained
+
+
+def github(out, repo, tag, current=""):
     release = subprocess.check_output(
         ["gh", "api", f"repos/{repo}/releases/tags/{tag}", "--jq", ".id"], text=True
     ).strip()
@@ -80,8 +228,13 @@ def github(out, repo, tag):
         name, asset, created = json.loads(line)
         existing[name] = (asset, created)
     # GitHub rejects empty assets; those files stay on R2 and the pack host.
+    # Files the last releases still need are never pruned (rollback window);
+    # manifests live in the releases repo, not in this mirror repo.
     staged = {path.name for path in out.iterdir() if path.stat().st_size > 0}
-    upload, delete = plan(existing, staged)
+    retained = retain(
+        staged, skip={current} if current else set(), dry_run=True, verbose=False
+    )
+    upload, delete = plan(existing, staged, retain=retained)
     for asset in delete:
         subprocess.run(
             ["gh", "api", "-X", "DELETE", f"repos/{repo}/releases/assets/{asset}"],
@@ -103,7 +256,44 @@ if __name__ == "__main__":
     command, *args = sys.argv[1:]
     if command == "stage":
         stage(Path(args[0]), Path(args[1]))
+    elif command == "manifest":
+        write_manifest(Path(args[0]), Path(args[1]))
     elif command == "github":
-        github(Path(args[0]), args[1], args[2])
+        github(Path(args[0]), args[1], args[2], args[3] if len(args) > 3 else "")
+    elif command == "retain":
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--repo", default=RELEASES_REPO)
+        parser.add_argument(
+            "--tag", default="", help="current release tag (kept, not previous)"
+        )
+        parser.add_argument("--keep", type=int, default=RETAIN_RELEASES)
+        parser.add_argument("--remote", default="pack:blockfield-pack")
+        parser.add_argument(
+            "--staged-dir", default="", help="dir of staged mirror files"
+        )
+        parser.add_argument("--dry-run", action="store_true")
+        opts = parser.parse_args(args)
+        if opts.staged_dir:
+            staged = {
+                path.name
+                for path in Path(opts.staged_dir).iterdir()
+                if path.stat().st_size > 0
+            }
+        elif not sys.stdin.isatty():
+            staged = set(sys.stdin.read().split())
+        elif opts.tag:
+            staged = manifest_keys_for(opts.tag, opts.repo)
+        else:
+            staged = set()
+        retain(
+            staged,
+            repo=opts.repo,
+            skip={opts.tag} if opts.tag else set(),
+            keep=opts.keep,
+            dry_run=opts.dry_run,
+            remote=opts.remote,
+        )
     else:
         raise SystemExit(f"Unknown command {command}")
