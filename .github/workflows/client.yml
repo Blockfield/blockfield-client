@@ -125,12 +125,12 @@ jobs:
       # publishes or tags it; the staged archives + build.json stay a PR
       # artifact until the cutover units wire the release path.
       - name: Build and verify workshop variant
-        if: steps.same.outputs.tested != 'true'
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && steps.same.outputs.tested != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
         run: just build --out dist-workshop --variant workshop
       - name: Record workshop pack hashes
-        if: steps.same.outputs.tested != 'true'
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && steps.same.outputs.tested != 'true' }}
         run: |
           just python -c 'import json; b = json.load(open("dist-workshop/web/build.json")); print("variant:", b["variant"]); print("workshop_inputs:", b["workshop_inputs"]); print("client:", b["client"]); print("compatibility:", b["compatibility"])'
       - name: Upload staged workshop pack
