@@ -1,6 +1,7 @@
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -39,6 +40,333 @@ class ClientBuildTests(unittest.TestCase):
         self.assertEqual(upload, sorted(staged - set(existing))[:400])
         # 903 kept + 102 new would pass 900: the oldest stale assets go first, live ones never.
         self.assertEqual(delete, [0, 1, 2, 3, 4])
+
+    def test_github_mirror_never_prunes_retained_release_files(self):
+        staged = {f"h{i}" for i in range(1000)}
+        existing = {f"old{i}": (i, f"2026-10-{10 + i:02}") for i in range(5)}
+        existing |= {f"h{i}": (100 + i, "2026-10-01") for i in range(898)}
+        upload, delete = mirror_files.plan(
+            existing, staged, retain={"old0", "old1", "old2", "old3", "old4"}
+        )
+        self.assertEqual(delete, [])
+        existing |= {f"extra{i}": (200 + i, "2026-09-01") for i in range(10)}
+        upload, delete = mirror_files.plan(
+            existing, staged, retain={"old0", "old1", "old2", "old3", "old4"}
+        )
+        self.assertEqual(
+            sorted(delete), [200, 201, 202, 203, 204, 205, 206, 207, 208, 209]
+        )
+
+    def test_recent_release_tags_picks_last_five_version_tags(self):
+        names = [
+            "v2.79.2",
+            "files",
+            "v2.79.1",
+            "latest",
+            "v2.79.0",
+            "v2.78.9",
+            "v2.78.8",
+            "v2.78.7",
+            "v2.78.6",
+        ]
+        self.assertEqual(
+            mirror_files.select_release_tags(names, 5, skip={"v2.79.2"}),
+            ["v2.79.1", "v2.79.0", "v2.78.9", "v2.78.8", "v2.78.7"],
+        )
+        self.assertEqual(
+            mirror_files.select_release_tags(names, 5),
+            ["v2.79.2", "v2.79.1", "v2.79.0", "v2.78.9", "v2.78.8"],
+        )
+
+    def test_manifest_lists_sorted_mirror_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web = Path(tmp) / "web"
+            web.mkdir()
+            out = Path(tmp) / "manifest.txt"
+            with patch.dict(
+                mirror_files.__dict__,
+                {"mirror_files": lambda w: {"c1": w / "a", "deadbeef": w / "b"}},
+            ):
+                keys = mirror_files.write_manifest(web, out)
+            self.assertEqual(keys, ["c1", "deadbeef"])
+            self.assertEqual(out.read_text().splitlines(), ["c1", "deadbeef"])
+
+    def test_retain_dry_run_lists_kept_releases(self):
+        out = io.StringIO()
+        with (
+            patch.object(
+                mirror_files, "recent_release_tags", return_value=["v2.79.1", "v2.79.0"]
+            ),
+            patch.object(
+                mirror_files,
+                "manifest_keys_for",
+                side_effect=lambda tag, repo: {f"hash-of-{tag}"},
+            ),
+            patch("sys.stdout", new=out),
+        ):
+            retained = mirror_files.retain(
+                {"current-hash"}, dry_run=True, skip={"v2.79.2"}
+            )
+        text = out.getvalue()
+        self.assertIn("v2.79.1", text)
+        self.assertIn("v2.79.0", text)
+        self.assertEqual(
+            retained, {"current-hash", "hash-of-v2.79.1", "hash-of-v2.79.0"}
+        )
+
+    def test_retain_touch_targets_bucket_path_with_no_create(self):
+        calls = []
+        with (
+            patch.object(mirror_files.shutil, "which", return_value="rclone"),
+            patch.object(
+                mirror_files.subprocess,
+                "run",
+                side_effect=lambda cmd, **kw: (
+                    calls.append(cmd) or SimpleNamespace(returncode=0, stderr="")
+                ),
+            ),
+            patch("sys.stdout", new=io.StringIO()),
+        ):
+            retained = mirror_files.retain(
+                {"abc123"},
+                keep=1,
+                dry_run=False,
+                remote="pack:blockfield-pack",
+            )
+        self.assertEqual(retained, {"abc123"})
+        self.assertEqual(
+            calls,
+            [["rclone", "touch", "--no-create", "pack:blockfield-pack/abc123"]],
+        )
+
+    def test_retain_touches_concurrently_with_bounded_pool(self):
+        import concurrent.futures
+
+        keys = {f"key{i}" for i in range(6)}
+        calls = []
+        pools = []
+        real_pool = concurrent.futures.ThreadPoolExecutor
+
+        class SpyPool(real_pool):
+            def __init__(self, *args, **kwargs):
+                pools.append(kwargs.get("max_workers"))
+                super().__init__(*args, **kwargs)
+
+        def fake_run(cmd, **kw):
+            calls.append(cmd)
+            if cmd[-1].endswith("key0"):
+                return SimpleNamespace(returncode=1, stderr="boom")
+            return SimpleNamespace(returncode=0, stderr="")
+
+        logged = io.StringIO()
+        with (
+            patch.object(mirror_files.shutil, "which", return_value="rclone"),
+            patch.object(mirror_files.subprocess, "run", side_effect=fake_run),
+            patch.object(
+                mirror_files.concurrent.futures,
+                "ThreadPoolExecutor",
+                SpyPool,
+            ),
+            patch("sys.stdout", new=logged),
+        ):
+            retained = mirror_files.retain(
+                keys, keep=1, dry_run=False, remote="pack:blockfield-pack"
+            )
+        self.assertEqual(retained, keys)
+        # Every key touched exactly once; one failure warns, never fails publish.
+        self.assertEqual(
+            sorted(cmd[-1] for cmd in calls),
+            sorted(f"pack:blockfield-pack/{key}" for key in keys),
+        )
+        self.assertIn("touch failed for key0", logged.getvalue())
+        self.assertIn("Refreshed 5/6 mirror objects", logged.getvalue())
+        self.assertEqual(pools, [mirror_files.TOUCH_WORKERS])
+        self.assertEqual(mirror_files.TOUCH_WORKERS, 16)
+
+    def test_github_mirror_caps_retained_releases_at_asset_limit(self):
+        current = {f"c{i}" for i in range(400)}
+        v1_new = {f"n{i}" for i in range(150)}
+        v0_new = {f"m{i}" for i in range(100)}
+        releases = [
+            ("current", current),
+            ("v2.79.1", {f"c{i}" for i in range(250)} | v1_new),
+            ("v2.79.0", set(current) | v0_new),
+            ("v2.78.9", {f"c{i}" for i in range(50)}),
+        ]
+        budget = mirror_files.GITHUB_ASSETS_MAX - mirror_files.UPLOADS_PER_RUN
+        self.assertEqual(budget, 600)
+        kept, dropped = mirror_files.cap_retained_for_github(releases, budget)
+        self.assertTrue(current <= kept)
+        self.assertTrue(v1_new <= kept)
+        self.assertTrue(v0_new.isdisjoint(kept))
+        self.assertEqual(dropped, ["v2.79.0"])
+
+    def test_github_mirror_keeps_all_releases_under_cap(self):
+        current = {f"c{i}" for i in range(100)}
+        releases = [("current", set(current))]
+        for tag in ("v2.79.1", "v2.79.0", "v2.78.9", "v2.78.8"):
+            releases.append((tag, set(current) | {f"{tag}-{i}" for i in range(50)}))
+        budget = mirror_files.GITHUB_ASSETS_MAX - mirror_files.UPLOADS_PER_RUN
+        kept, dropped = mirror_files.cap_retained_for_github(releases, budget)
+        self.assertEqual(dropped, [])
+        self.assertEqual(len(kept), 300)
+
+    def test_github_mirror_release_uses_releases_repo_for_retention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "newhash").write_text("x")
+            with (
+                patch.object(
+                    mirror_files.subprocess,
+                    "check_output",
+                    return_value="",
+                ) as api,
+                patch.object(mirror_files.subprocess, "run") as run,
+                patch.object(
+                    mirror_files,
+                    "retained_releases",
+                    return_value=[("current", {"newhash"})],
+                ) as retain_call,
+            ):
+                mirror_files.github(
+                    out, "Blockfield/blockfield-pack-mirror", "files", "v2.79.2"
+                )
+        retain_call.assert_called_once_with({"newhash"}, skip={"v2.79.2"})
+        self.assertEqual(api.call_count, 2)
+        self.assertEqual(run.call_count, 1)
+
+    def test_recent_release_tags_raises_when_gh_fails(self):
+        with patch.object(
+            mirror_files.subprocess,
+            "check_output",
+            side_effect=subprocess.CalledProcessError(1, ["gh", "release", "list"]),
+        ):
+            with self.assertRaises(mirror_files.RetentionError):
+                mirror_files.recent_release_tags(4)
+
+    def test_manifest_keys_for_raises_when_release_unreadable(self):
+        with patch.object(
+            mirror_files.subprocess,
+            "check_output",
+            side_effect=subprocess.CalledProcessError(1, ["gh", "release", "view"]),
+        ):
+            with self.assertRaises(mirror_files.RetentionError):
+                mirror_files.manifest_keys_for("v2.79.1")
+
+    def test_manifest_keys_for_empty_when_release_has_no_manifest(self):
+        with (
+            patch.object(
+                mirror_files.subprocess,
+                "check_output",
+                return_value="other-asset.txt\n",
+            ),
+            patch.object(mirror_files.subprocess, "run") as run,
+        ):
+            self.assertEqual(mirror_files.manifest_keys_for("v2.78.0"), set())
+        run.assert_not_called()
+
+    def test_github_mirror_skips_prune_when_retention_unreadable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "newhash").write_text("x")
+            existing = "\n".join(
+                json.dumps([f"old{i}", i, f"2026-09-{(i % 28) + 1:02d}"])
+                for i in range(905)
+            )
+            failure = subprocess.CalledProcessError(1, ["gh", "release", "list"])
+            logged = io.StringIO()
+            with (
+                patch.object(
+                    mirror_files.subprocess,
+                    "check_output",
+                    side_effect=["123\n", existing, failure],
+                ),
+                patch.object(mirror_files.subprocess, "run") as run,
+                patch("sys.stdout", new=logged),
+            ):
+                mirror_files.github(
+                    out, "Blockfield/blockfield-pack-mirror", "files", "v2.79.2"
+                )
+        deletes = [
+            call
+            for call in run.call_args_list
+            if list(call.args[0][:3]) == ["gh", "api", "-X"]
+        ]
+        uploads = [
+            call
+            for call in run.call_args_list
+            if list(call.args[0][:3]) == ["gh", "release", "upload"]
+        ]
+        self.assertEqual(deletes, [])
+        self.assertEqual(len(uploads), 1)
+        self.assertIn("WARNING", logged.getvalue())
+        self.assertIn("Could not list releases", logged.getvalue())
+
+    def test_github_mirror_prunes_normally_when_old_release_has_no_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "newhash").write_text("x")
+            existing = "\n".join(
+                json.dumps([f"old{i}", i, f"2026-09-{(i % 28) + 1:02d}"])
+                for i in range(905)
+            )
+            with (
+                patch.object(
+                    mirror_files.subprocess,
+                    "check_output",
+                    side_effect=["123\n", existing],
+                ),
+                patch.object(
+                    mirror_files,
+                    "recent_release_tags",
+                    return_value=["v2.79.0"],
+                ),
+                patch.object(mirror_files, "manifest_keys_for", return_value=set()),
+                patch.object(mirror_files.subprocess, "run") as run,
+                patch("sys.stdout", new=io.StringIO()),
+            ):
+                mirror_files.github(
+                    out, "Blockfield/blockfield-pack-mirror", "files", "v2.79.2"
+                )
+        deletes = [
+            call
+            for call in run.call_args_list
+            if list(call.args[0][:3]) == ["gh", "api", "-X"]
+        ]
+        self.assertTrue(deletes)
+
+    def test_retain_refreshes_current_when_old_manifests_unreadable(self):
+        calls = []
+        logged = io.StringIO()
+        with (
+            patch.object(
+                mirror_files,
+                "recent_release_tags",
+                side_effect=mirror_files.RetentionError(
+                    "Could not list releases of Blockfield/blockfield-releases"
+                ),
+            ),
+            patch.object(mirror_files.shutil, "which", return_value="rclone"),
+            patch.object(
+                mirror_files.subprocess,
+                "run",
+                side_effect=lambda cmd, **kw: (
+                    calls.append(cmd) or SimpleNamespace(returncode=0, stderr="")
+                ),
+            ),
+            patch("sys.stdout", new=logged),
+        ):
+            retained = mirror_files.retain(
+                {"abc123"},
+                dry_run=False,
+                remote="pack:blockfield-pack",
+            )
+        self.assertEqual(retained, {"abc123"})
+        self.assertEqual(
+            calls,
+            [["rclone", "touch", "--no-create", "pack:blockfield-pack/abc123"]],
+        )
+        self.assertIn("WARNING", logged.getvalue())
 
     def test_r2_download_uses_public_https_and_rejects_unsafe_urls(self):
         with (
