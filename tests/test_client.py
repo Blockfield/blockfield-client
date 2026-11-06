@@ -113,6 +113,31 @@ class ClientBuildTests(unittest.TestCase):
             retained, {"current-hash", "hash-of-v2.79.1", "hash-of-v2.79.0"}
         )
 
+    def test_retain_touch_targets_bucket_path_with_no_create(self):
+        calls = []
+        with (
+            patch.object(mirror_files.shutil, "which", return_value="rclone"),
+            patch.object(
+                mirror_files.subprocess,
+                "run",
+                side_effect=lambda cmd, **kw: (
+                    calls.append(cmd) or SimpleNamespace(returncode=0, stderr="")
+                ),
+            ),
+            patch("sys.stdout", new=io.StringIO()),
+        ):
+            retained = mirror_files.retain(
+                {"abc123"},
+                keep=1,
+                dry_run=False,
+                remote="pack:blockfield-pack",
+            )
+        self.assertEqual(retained, {"abc123"})
+        self.assertEqual(
+            calls,
+            [["rclone", "touch", "--no-create", "pack:blockfield-pack/abc123"]],
+        )
+
     def test_github_mirror_release_uses_releases_repo_for_retention(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)

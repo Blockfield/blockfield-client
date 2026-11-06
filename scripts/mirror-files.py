@@ -191,7 +191,7 @@ def retain(
     errors = 0
     for key in sorted(retained):
         result = subprocess.run(
-            [rclone, "touch", f"{remote}:{key}"],
+            [rclone, "touch", "--no-create", f"{remote}/{key}"],
             capture_output=True,
             text=True,
         )
