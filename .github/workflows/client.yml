@@ -120,6 +120,34 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
         run: just build --out dist
+      # Workshop/Game split cutover (server#233 U3): the workshop pack is a
+      # lean --variant workshop build of the same tree. CI builds it but never
+      # publishes or tags it; the staged archives + build.json stay a PR
+      # artifact until the cutover units wire the release path.
+      - name: Build and verify workshop variant
+        if: steps.same.outputs.tested != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
+        run: just build --out dist-workshop --variant workshop
+      - name: Record workshop pack hashes
+        if: steps.same.outputs.tested != 'true'
+        run: |
+          just python -c 'import json; b = json.load(open("dist-workshop/web/build.json")); print("variant:", b["variant"]); print("workshop_inputs:", b["workshop_inputs"]); print("client:", b["client"]); print("compatibility:", b["compatibility"])'
+      - name: Upload staged workshop pack
+        if: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && steps.same.outputs.tested != 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: workshop-pack-staged
+          path: |
+            dist-workshop/Blockfield-workshop.zip
+            dist-workshop/Blockfield-workshop-prism.zip
+            dist-workshop/Blockfield-workshop.mrpack
+            dist-workshop/web/build.json
+            dist-workshop/web/pack.toml
+            dist-workshop/web/index.toml
+            dist-workshop/SHA256SUMS
+          retention-days: 7
+          if-no-files-found: error
       - name: Validate client release version
         if: github.ref_type == 'tag'
         run: |
