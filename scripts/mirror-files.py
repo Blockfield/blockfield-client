@@ -22,6 +22,7 @@ from pathlib import Path
 # GitHub allows about 500 content-creating requests an hour and 1000 assets per release.
 UPLOADS_PER_RUN = 400
 ASSETS_KEPT = 900
+GITHUB_ASSETS_MAX = 1000
 
 # R2 bucket blockfield-pack expires objects 30 days after upload (Cloudflare
 # dashboard lifecycle, not codable in repo). Mirror objects are hash-named and
@@ -151,6 +152,27 @@ def manifest_keys_for(tag, repo=RELEASES_REPO):
             return set()
 
 
+def retained_releases(staged, repo=RELEASES_REPO, skip=(), keep=RETAIN_RELEASES):
+    """[(label, keys)] newest-first: the current release, then previous releases."""
+    releases = [("current", set(staged))]
+    if keep > 1:
+        for tag in recent_release_tags(keep - 1, repo, skip):
+            releases.append((tag, manifest_keys_for(tag, repo)))
+    return releases
+
+
+def cap_retained_for_github(releases, budget):
+    """(kept keys, dropped labels): current whole, then newest whole releases in budget."""
+    kept = set(releases[0][1]) if releases else set()
+    dropped = []
+    for label, keys in releases[1:]:
+        if len(kept | keys) <= budget:
+            kept |= keys
+        else:
+            dropped.append(label)
+    return kept, dropped
+
+
 def retain(
     staged,
     repo=RELEASES_REPO,
@@ -166,10 +188,9 @@ def retain(
     LastModified, no bytes moved), so the 30-day lifecycle restarts for exactly
     the rollback window. staged is the current release's key set (kept too).
     """
-    tags = recent_release_tags(keep - 1, repo, skip) if keep > 1 else []
-    retained = set(staged)
-    for tag in tags:
-        retained |= manifest_keys_for(tag, repo)
+    releases = retained_releases(staged, repo, skip, keep)
+    tags = [label for label, _ in releases[1:]]
+    retained = set().union(*(keys for _, keys in releases))
     kept = sorted([*skip, *tags])
     print(f"Keeping {len(retained)} mirror objects for releases: {', '.join(kept)}")
     if dry_run and verbose:
@@ -228,12 +249,20 @@ def github(out, repo, tag, current=""):
         name, asset, created = json.loads(line)
         existing[name] = (asset, created)
     # GitHub rejects empty assets; those files stay on R2 and the pack host.
-    # Files the last releases still need are never pruned (rollback window);
-    # manifests live in the releases repo, not in this mirror repo.
+    # The last releases are never pruned (rollback window), but only whole
+    # releases that fit under the 1000-asset cap minus this run's upload
+    # headroom stay on the GitHub mirror; R2 keeps all of them regardless.
+    # Retention never fails the publish: manifest fetches are best effort.
     staged = {path.name for path in out.iterdir() if path.stat().st_size > 0}
-    retained = retain(
-        staged, skip={current} if current else set(), dry_run=True, verbose=False
+    releases = retained_releases(staged, skip={current} if current else set())
+    retained, dropped = cap_retained_for_github(
+        releases, GITHUB_ASSETS_MAX - UPLOADS_PER_RUN
     )
+    if dropped:
+        print(
+            f"GitHub mirror over the {GITHUB_ASSETS_MAX}-asset cap:"
+            f" not retaining releases: {', '.join(dropped)}"
+        )
     upload, delete = plan(existing, staged, retain=retained)
     for asset in delete:
         subprocess.run(

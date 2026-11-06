@@ -138,6 +138,34 @@ class ClientBuildTests(unittest.TestCase):
             [["rclone", "touch", "--no-create", "pack:blockfield-pack/abc123"]],
         )
 
+    def test_github_mirror_caps_retained_releases_at_asset_limit(self):
+        current = {f"c{i}" for i in range(400)}
+        v1_new = {f"n{i}" for i in range(150)}
+        v0_new = {f"m{i}" for i in range(100)}
+        releases = [
+            ("current", current),
+            ("v2.79.1", {f"c{i}" for i in range(250)} | v1_new),
+            ("v2.79.0", set(current) | v0_new),
+            ("v2.78.9", {f"c{i}" for i in range(50)}),
+        ]
+        budget = mirror_files.GITHUB_ASSETS_MAX - mirror_files.UPLOADS_PER_RUN
+        self.assertEqual(budget, 600)
+        kept, dropped = mirror_files.cap_retained_for_github(releases, budget)
+        self.assertTrue(current <= kept)
+        self.assertTrue(v1_new <= kept)
+        self.assertTrue(v0_new.isdisjoint(kept))
+        self.assertEqual(dropped, ["v2.79.0"])
+
+    def test_github_mirror_keeps_all_releases_under_cap(self):
+        current = {f"c{i}" for i in range(100)}
+        releases = [("current", set(current))]
+        for tag in ("v2.79.1", "v2.79.0", "v2.78.9", "v2.78.8"):
+            releases.append((tag, set(current) | {f"{tag}-{i}" for i in range(50)}))
+        budget = mirror_files.GITHUB_ASSETS_MAX - mirror_files.UPLOADS_PER_RUN
+        kept, dropped = mirror_files.cap_retained_for_github(releases, budget)
+        self.assertEqual(dropped, [])
+        self.assertEqual(len(kept), 300)
+
     def test_github_mirror_release_uses_releases_repo_for_retention(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
@@ -150,15 +178,15 @@ class ClientBuildTests(unittest.TestCase):
                 ) as api,
                 patch.object(mirror_files.subprocess, "run") as run,
                 patch.object(
-                    mirror_files, "retain", return_value={"newhash"}
+                    mirror_files,
+                    "retained_releases",
+                    return_value=[("current", {"newhash"})],
                 ) as retain_call,
             ):
                 mirror_files.github(
                     out, "Blockfield/blockfield-pack-mirror", "files", "v2.79.2"
                 )
-        retain_call.assert_called_once_with(
-            {"newhash"}, skip={"v2.79.2"}, dry_run=True, verbose=False
-        )
+        retain_call.assert_called_once_with({"newhash"}, skip={"v2.79.2"})
         self.assertEqual(api.call_count, 2)
         self.assertEqual(run.call_count, 1)
 
