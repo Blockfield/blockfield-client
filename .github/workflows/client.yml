@@ -162,6 +162,7 @@ jobs:
       - name: Retain last releases on the R2 mirror
         if: github.ref_type == 'tag'
         continue-on-error: true
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
           RCLONE_CONFIG_PACK_TYPE: s3

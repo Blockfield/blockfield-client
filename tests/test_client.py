@@ -139,6 +139,50 @@ class ClientBuildTests(unittest.TestCase):
             [["rclone", "touch", "--no-create", "pack:blockfield-pack/abc123"]],
         )
 
+    def test_retain_touches_concurrently_with_bounded_pool(self):
+        import concurrent.futures
+
+        keys = {f"key{i}" for i in range(6)}
+        calls = []
+        pools = []
+        real_pool = concurrent.futures.ThreadPoolExecutor
+
+        class SpyPool(real_pool):
+            def __init__(self, *args, **kwargs):
+                pools.append(kwargs.get("max_workers"))
+                super().__init__(*args, **kwargs)
+
+        def fake_run(cmd, **kw):
+            calls.append(cmd)
+            if cmd[-1].endswith("key0"):
+                return SimpleNamespace(returncode=1, stderr="boom")
+            return SimpleNamespace(returncode=0, stderr="")
+
+        logged = io.StringIO()
+        with (
+            patch.object(mirror_files.shutil, "which", return_value="rclone"),
+            patch.object(mirror_files.subprocess, "run", side_effect=fake_run),
+            patch.object(
+                mirror_files.concurrent.futures,
+                "ThreadPoolExecutor",
+                SpyPool,
+            ),
+            patch("sys.stdout", new=logged),
+        ):
+            retained = mirror_files.retain(
+                keys, keep=1, dry_run=False, remote="pack:blockfield-pack"
+            )
+        self.assertEqual(retained, keys)
+        # Every key touched exactly once; one failure warns, never fails publish.
+        self.assertEqual(
+            sorted(cmd[-1] for cmd in calls),
+            sorted(f"pack:blockfield-pack/{key}" for key in keys),
+        )
+        self.assertIn("touch failed for key0", logged.getvalue())
+        self.assertIn("Refreshed 5/6 mirror objects", logged.getvalue())
+        self.assertEqual(pools, [mirror_files.TOUCH_WORKERS])
+        self.assertEqual(mirror_files.TOUCH_WORKERS, 16)
+
     def test_github_mirror_caps_retained_releases_at_asset_limit(self):
         current = {f"c{i}" for i in range(400)}
         v1_new = {f"n{i}" for i in range(150)}

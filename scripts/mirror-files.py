@@ -8,6 +8,7 @@ packwiz-installer resolves {hash} in mirrors.json to the hash the pack declares 
 the GitHub mirror release keep every file under that name, shared by all releases.
 """
 
+import concurrent.futures
 import json
 import os
 import re
@@ -35,6 +36,9 @@ GITHUB_ASSETS_MAX = 1000
 RELEASES_REPO = "Blockfield/blockfield-releases"
 MANIFEST_ASSET = "mirror-manifest.txt"
 RETAIN_RELEASES = 5
+# One rclone process per key; bound the pool so a big rollback window cannot
+# exhaust fds/processes or stall the build job (step has its own timeout).
+TOUCH_WORKERS = 16
 
 
 class RetentionError(Exception):
@@ -244,15 +248,21 @@ def retain(
         except Exception as error:
             raise SystemExit(f"no rclone available: {error}")
     errors = 0
-    for key in sorted(retained):
-        result = subprocess.run(
+
+    def touch(key):
+        return key, subprocess.run(
             [rclone, "touch", "--no-create", f"{remote}/{key}"],
             capture_output=True,
             text=True,
         )
-        if result.returncode != 0:
-            errors += 1
-            print(f"touch failed for {key}: {result.stderr.strip()}")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=TOUCH_WORKERS) as pool:
+        futures = [pool.submit(touch, key) for key in sorted(retained)]
+        for future in concurrent.futures.as_completed(futures):
+            key, result = future.result()
+            if result.returncode != 0:
+                errors += 1
+                print(f"touch failed for {key}: {result.stderr.strip()}")
     print(
         f"Refreshed {len(retained) - errors}/{len(retained)} mirror objects on {remote}"
     )
