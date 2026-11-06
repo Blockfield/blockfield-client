@@ -1,6 +1,7 @@
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -189,6 +190,139 @@ class ClientBuildTests(unittest.TestCase):
         retain_call.assert_called_once_with({"newhash"}, skip={"v2.79.2"})
         self.assertEqual(api.call_count, 2)
         self.assertEqual(run.call_count, 1)
+
+    def test_recent_release_tags_raises_when_gh_fails(self):
+        with patch.object(
+            mirror_files.subprocess,
+            "check_output",
+            side_effect=subprocess.CalledProcessError(1, ["gh", "release", "list"]),
+        ):
+            with self.assertRaises(mirror_files.RetentionError):
+                mirror_files.recent_release_tags(4)
+
+    def test_manifest_keys_for_raises_when_release_unreadable(self):
+        with patch.object(
+            mirror_files.subprocess,
+            "check_output",
+            side_effect=subprocess.CalledProcessError(1, ["gh", "release", "view"]),
+        ):
+            with self.assertRaises(mirror_files.RetentionError):
+                mirror_files.manifest_keys_for("v2.79.1")
+
+    def test_manifest_keys_for_empty_when_release_has_no_manifest(self):
+        with (
+            patch.object(
+                mirror_files.subprocess,
+                "check_output",
+                return_value="other-asset.txt\n",
+            ),
+            patch.object(mirror_files.subprocess, "run") as run,
+        ):
+            self.assertEqual(mirror_files.manifest_keys_for("v2.78.0"), set())
+        run.assert_not_called()
+
+    def test_github_mirror_skips_prune_when_retention_unreadable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "newhash").write_text("x")
+            existing = "\n".join(
+                json.dumps([f"old{i}", i, f"2026-09-{(i % 28) + 1:02d}"])
+                for i in range(905)
+            )
+            failure = subprocess.CalledProcessError(1, ["gh", "release", "list"])
+            logged = io.StringIO()
+            with (
+                patch.object(
+                    mirror_files.subprocess,
+                    "check_output",
+                    side_effect=["123\n", existing, failure],
+                ),
+                patch.object(mirror_files.subprocess, "run") as run,
+                patch("sys.stdout", new=logged),
+            ):
+                mirror_files.github(
+                    out, "Blockfield/blockfield-pack-mirror", "files", "v2.79.2"
+                )
+        deletes = [
+            call
+            for call in run.call_args_list
+            if list(call.args[0][:3]) == ["gh", "api", "-X"]
+        ]
+        uploads = [
+            call
+            for call in run.call_args_list
+            if list(call.args[0][:3]) == ["gh", "release", "upload"]
+        ]
+        self.assertEqual(deletes, [])
+        self.assertEqual(len(uploads), 1)
+        self.assertIn("WARNING", logged.getvalue())
+        self.assertIn("Could not list releases", logged.getvalue())
+
+    def test_github_mirror_prunes_normally_when_old_release_has_no_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "newhash").write_text("x")
+            existing = "\n".join(
+                json.dumps([f"old{i}", i, f"2026-09-{(i % 28) + 1:02d}"])
+                for i in range(905)
+            )
+            with (
+                patch.object(
+                    mirror_files.subprocess,
+                    "check_output",
+                    side_effect=["123\n", existing],
+                ),
+                patch.object(
+                    mirror_files,
+                    "recent_release_tags",
+                    return_value=["v2.79.0"],
+                ),
+                patch.object(mirror_files, "manifest_keys_for", return_value=set()),
+                patch.object(mirror_files.subprocess, "run") as run,
+                patch("sys.stdout", new=io.StringIO()),
+            ):
+                mirror_files.github(
+                    out, "Blockfield/blockfield-pack-mirror", "files", "v2.79.2"
+                )
+        deletes = [
+            call
+            for call in run.call_args_list
+            if list(call.args[0][:3]) == ["gh", "api", "-X"]
+        ]
+        self.assertTrue(deletes)
+
+    def test_retain_refreshes_current_when_old_manifests_unreadable(self):
+        calls = []
+        logged = io.StringIO()
+        with (
+            patch.object(
+                mirror_files,
+                "recent_release_tags",
+                side_effect=mirror_files.RetentionError(
+                    "Could not list releases of Blockfield/blockfield-releases"
+                ),
+            ),
+            patch.object(mirror_files.shutil, "which", return_value="rclone"),
+            patch.object(
+                mirror_files.subprocess,
+                "run",
+                side_effect=lambda cmd, **kw: (
+                    calls.append(cmd) or SimpleNamespace(returncode=0, stderr="")
+                ),
+            ),
+            patch("sys.stdout", new=logged),
+        ):
+            retained = mirror_files.retain(
+                {"abc123"},
+                dry_run=False,
+                remote="pack:blockfield-pack",
+            )
+        self.assertEqual(retained, {"abc123"})
+        self.assertEqual(
+            calls,
+            [["rclone", "touch", "--no-create", "pack:blockfield-pack/abc123"]],
+        )
+        self.assertIn("WARNING", logged.getvalue())
 
     def test_r2_download_uses_public_https_and_rejects_unsafe_urls(self):
         with (

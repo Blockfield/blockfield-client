@@ -30,9 +30,15 @@ GITHUB_ASSETS_MAX = 1000
 # current release would rot away. Each tag release publishes MANIFEST_ASSET with
 # its mirror keys; retain() refreshes every object the last RETAIN_RELEASES
 # releases need, which exempts the rollback window from the 30-day expiry.
+# Fail safe: when the release list or a manifest is unreadable, nothing is
+# pruned on either mirror and the current release still publishes.
 RELEASES_REPO = "Blockfield/blockfield-releases"
 MANIFEST_ASSET = "mirror-manifest.txt"
 RETAIN_RELEASES = 5
+
+
+class RetentionError(Exception):
+    """Retention inputs are unreadable: prune nothing until they read again."""
 
 
 def mirror_files(web):
@@ -96,7 +102,7 @@ def select_release_tags(names, limit, skip=()):
 
 
 def recent_release_tags(limit, repo=RELEASES_REPO, skip=()):
-    """Newest-first release tags of repo (best effort: [] when gh fails)."""
+    """Newest-first release tags of repo (raises RetentionError when gh fails)."""
     try:
         listing = subprocess.check_output(
             [
@@ -115,13 +121,37 @@ def recent_release_tags(limit, repo=RELEASES_REPO, skip=()):
             text=True,
         )
     except subprocess.SubprocessError as error:
-        print(f"Could not list releases of {repo}: {error}")
-        return []
+        raise RetentionError(f"Could not list releases of {repo}: {error}")
     return select_release_tags(listing.splitlines(), limit, skip)
 
 
 def manifest_keys_for(tag, repo=RELEASES_REPO):
-    """Mirror keys a release needs (best effort: empty when the asset is missing)."""
+    """Mirror keys a release needs (raises RetentionError when unreadable).
+
+    A release with genuinely no manifest asset (pre-retention) needs
+    nothing: that is set(), not an error.
+    """
+    try:
+        assets = subprocess.check_output(
+            [
+                "gh",
+                "release",
+                "view",
+                tag,
+                "--repo",
+                repo,
+                "--json",
+                "assets",
+                "--jq",
+                ".assets[].name",
+            ],
+            text=True,
+        )
+    except subprocess.SubprocessError as error:
+        raise RetentionError(f"Could not read release {tag} of {repo}: {error}")
+    if MANIFEST_ASSET not in assets.splitlines():
+        print(f"No manifest for {tag} (pre-retention release?)")
+        return set()
     with tempfile.TemporaryDirectory() as tmp:
         try:
             subprocess.run(
@@ -148,8 +178,7 @@ def manifest_keys_for(tag, repo=RELEASES_REPO):
                 if line.strip()
             }
         except (subprocess.SubprocessError, OSError) as error:
-            print(f"No manifest for {tag} (pre-retention release?): {error}")
-            return set()
+            raise RetentionError(f"Could not download manifest of {tag}: {error}")
 
 
 def retained_releases(staged, repo=RELEASES_REPO, skip=(), keep=RETAIN_RELEASES):
@@ -187,8 +216,13 @@ def retain(
     Returns the retained key set. Refresh is a server-side touch (new
     LastModified, no bytes moved), so the 30-day lifecycle restarts for exactly
     the rollback window. staged is the current release's key set (kept too).
+    When old manifests are unreadable, only the current release is refreshed.
     """
-    releases = retained_releases(staged, repo, skip, keep)
+    try:
+        releases = retained_releases(staged, repo, skip, keep)
+    except RetentionError as error:
+        print(f"WARNING: {error}; refreshing current release only")
+        releases = [("current", set(staged))]
     tags = [label for label, _ in releases[1:]]
     retained = set().union(*(keys for _, keys in releases))
     kept = sorted([*skip, *tags])
@@ -252,17 +286,23 @@ def github(out, repo, tag, current=""):
     # The last releases are never pruned (rollback window), but only whole
     # releases that fit under the 1000-asset cap minus this run's upload
     # headroom stay on the GitHub mirror; R2 keeps all of them regardless.
-    # Retention never fails the publish: manifest fetches are best effort.
+    # Retention never fails the publish: when manifests are unreadable,
+    # nothing is pruned and the current release still uploads.
     staged = {path.name for path in out.iterdir() if path.stat().st_size > 0}
-    releases = retained_releases(staged, skip={current} if current else set())
-    retained, dropped = cap_retained_for_github(
-        releases, GITHUB_ASSETS_MAX - UPLOADS_PER_RUN
-    )
-    if dropped:
-        print(
-            f"GitHub mirror over the {GITHUB_ASSETS_MAX}-asset cap:"
-            f" not retaining releases: {', '.join(dropped)}"
+    try:
+        releases = retained_releases(staged, skip={current} if current else set())
+        retained, dropped = cap_retained_for_github(
+            releases, GITHUB_ASSETS_MAX - UPLOADS_PER_RUN
         )
+        if dropped:
+            print(
+                f"GitHub mirror over the {GITHUB_ASSETS_MAX}-asset cap:"
+                f" not retaining releases: {', '.join(dropped)}"
+            )
+    except RetentionError as error:
+        # Fail safe: the retained set is unknown, so every existing asset stays.
+        print(f"WARNING: {error}; skipping prune this run")
+        retained = set(existing)
     upload, delete = plan(existing, staged, retain=retained)
     for asset in delete:
         subprocess.run(
@@ -313,7 +353,11 @@ if __name__ == "__main__":
         elif not sys.stdin.isatty():
             staged = set(sys.stdin.read().split())
         elif opts.tag:
-            staged = manifest_keys_for(opts.tag, opts.repo)
+            try:
+                staged = manifest_keys_for(opts.tag, opts.repo)
+            except RetentionError as error:
+                print(f"WARNING: {error}; keeping current release only")
+                staged = set()
         else:
             staged = set()
         retain(
