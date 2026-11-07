@@ -208,7 +208,7 @@ jobs:
         run: just python scripts/mirror-files.py github dist/mirror Blockfield/blockfield-pack-mirror files "$GITHUB_REF_NAME"
       - name: Release text
         if: github.ref_type == 'tag'
-        uses: Blockfield/blockfield-workspace/.github/actions/release-text@2f20c9e9f66ddf63fbb59196c1ab69cfe30356d2
+        uses: Blockfield/blockfield-workspace/.github/actions/release-text@5b1894309f9bc73ace73a17d6256e2c32488439e
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           RELEASE_TEXT_MODEL: ${{ vars.RELEASE_TEXT_MODEL }}
@@ -290,7 +290,7 @@ jobs:
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Expected vX.Y.Z, got $TAG"; exit 1; }
           gh release download "$TAG" --repo Blockfield/blockfield-releases --pattern build.json --dir dist/web
       - name: Release text
-        uses: Blockfield/blockfield-workspace/.github/actions/release-text@2f20c9e9f66ddf63fbb59196c1ab69cfe30356d2
+        uses: Blockfield/blockfield-workspace/.github/actions/release-text@5b1894309f9bc73ace73a17d6256e2c32488439e
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           RELEASE_TEXT_MODEL: ${{ vars.RELEASE_TEXT_MODEL }}
