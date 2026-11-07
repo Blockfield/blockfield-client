@@ -46,16 +46,16 @@ jobs:
           persist-credentials: false
           # Full history: the docs-only diff needs the PR base commit.
           fetch-depth: 0
-      # The build only consumes non-docs files. Fail closed: tags, unknown bases,
-      # a failing git diff and empty diffs all run the full build.
+      # The build only consumes non-docs files. Only PRs may skip it (against their
+      # base); pushes, tags, a failing git diff and empty diffs run the full build.
       - name: Determine docs-only scope
         id: scope
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           docs_only=false
           changed="$RUNNER_TEMP/changed"
-          if [ "$GITHUB_REF_TYPE" != tag ] && [ -n "$BASE_SHA" ] \
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ -n "$BASE_SHA" ] \
             && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null \
             && git diff --name-only -z --no-renames "$BASE_SHA" HEAD > "$changed" \
             && [ -s "$changed" ]; then
@@ -104,7 +104,7 @@ jobs:
     needs: [scope]
     # Notes-regeneration dispatches skip the build; everything else
     # (main/tag pushes, PR heads, maintainer dispatches) always runs, except
-    # docs-only changes, which the scope job gates out (it never marks tags docs-only).
+    # docs-only PRs, which the scope job gates out (pushes and tags always run full).
     if: always() && inputs.release_text_tag == '' && needs.scope.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
