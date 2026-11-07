@@ -33,12 +33,14 @@ Blacksmith проверяет main и PR. Тег `vX.Y.Z` должен совп�
 
 ## Подключение
 
-Игрок подключается только по RakNet: `raknet;play.blockfield.pro:25566` (Raknetify, UDP),
-единственный адрес в `servers.dat`. Proxy отклоняет вход по TCP 25565 и оставляет его
-для status ping, см. [proxy README](<private-repo>#транспорт-клиента).
+Игрок подключается по RakNet: `raknet;play.blockfield.pro:25566` (Raknetify, UDP),
+единственный адрес в `servers.dat`. TCP 25565 обслуживает status ping и принимает вход
+через тот же Drasl-шлюз для сетей, где режут UDP, см. [proxy README](<private-repo>#транспорт-клиента).
+Raknetify закреплён сборкой `bf3` того же релиза, что у proxy; `tests/test_raknetify_pin.py`
+проверяет версию и sha512.
 Raknetify — клиентский мод; backend Fabric не требует его при подключении
 через Velocity. UDP 25565 остаётся голосовым чатом. `servers.dat` помечен `preserve`:
-у существующих установок старая запись «Blockfield (TCP)» остаётся и получает отказ proxy.
+у существующих установок старая запись «Blockfield (TCP)» остаётся и снова пускает по TCP.
 
 `launcher.json` передаёт лаунчеру тот же `raknet;` адрес: лаунчер с 1.0.11 пингует
 статус по TCP 25565 того же хоста, а адрес quick-play отдаёт игре без изменений.
