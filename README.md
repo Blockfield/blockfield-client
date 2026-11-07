@@ -65,9 +65,11 @@ just check
 just format
 ```
 
-`just setup` также включает версионированный pre-push хук (`.githooks/pre-push` через
-`core.hooksPath`): каждый push запускает `just lint` и `just format-check` без Gradle
-(обход только через `--no-verify`).
+Версионированные хуки (`.githooks` через `core.hooksPath`): pre-commit форматирует
+staged-файлы теми же закреплёнными форматтерами и пере-stage'ит их, поэтому коммит
+всегда отформатирован; pre-push запускает `just lint` и `just format-check` без Gradle
+(обход только через `--no-verify`). Хуки включаются автоматически при любом
+`just`-вызове: свежий клон получает хуки на первом `just`.
 `just --list` показывает команды сборки и разработки.
 
 Условия использования: [LICENSE](LICENSE).
