@@ -8,7 +8,8 @@ on:
   # protection may require alongside `check` (see task report).
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore: ["**.md", "docs/**", "release-notes/**"]
+    # No paths-ignore: a docs-only PR must still create a run so the required
+    # `check` reports; `scope` gates the heavy build out instead.
   # Maintainer-only manual run: run it from the PR branch and record why.
   # Misuse is visible in the run history.
   workflow_dispatch:
@@ -31,6 +32,37 @@ concurrency:
   # one instead of cancelling it, so a merge always gets a full result.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  # Cheap scope decision on a free runner: docs-only PRs skip the
+  # network-bound build, but the run still exists so the required `check`
+  # reports instead of going missing (paths-ignore would skip the run).
+  scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # Full history: the docs-only diff needs the PR base commit.
+          fetch-depth: 0
+      # The build only consumes non-docs files; unknown bases run it.
+      - name: Determine docs-only scope
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          docs_only=false
+          if [ -n "$BASE_SHA" ] && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            docs_only=true
+            for f in $(git diff --name-only --no-renames "$BASE_SHA" HEAD); do
+              case "$f" in
+                *.md | docs/* | release-notes/*) ;;
+                *) docs_only=false ;;
+              esac
+            done
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
   # Fast, secret-free signal (~1 min: lint, format, tests, compile checks).
   # Runs beside the network-bound build instead of serially before it.
   lint:
@@ -64,9 +96,11 @@ jobs:
   # Network-bound pack build (downloads every mod jar): the critical path.
   # Main pushes usually merge a tree a green PR run already tested; tags always run full.
   build:
+    needs: [scope]
     # Notes-regeneration dispatches skip the build; everything else
-    # (main/tag pushes, PR heads, maintainer dispatches) always runs.
-    if: always() && inputs.release_text_tag == ''
+    # (main/tag pushes, PR heads, maintainer dispatches) always runs, except
+    # docs-only PRs, which the scope job gates out (tags always run full).
+    if: always() && inputs.release_text_tag == '' && (github.ref_type == 'tag' || needs.scope.outputs.docs_only != 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -256,19 +290,24 @@ jobs:
   # parallel jobs are. No checkout: the verdict is pure needs inspection.
   check:
     name: check
-    needs: [lint, build]
+    needs: [scope, lint, build]
     if: always() && inputs.release_text_tag == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Require green lint and build
+      - name: Require green scope, lint and build
+        env:
+          SCOPE: ${{ needs.scope.result }}
+          LINT: ${{ needs.lint.result }}
+          BUILD: ${{ needs.build.result }}
+          DOCS_ONLY: ${{ needs.scope.outputs.docs_only == 'true' }}
         run: |
-          for result in '${{ needs.lint.result }}' '${{ needs.build.result }}'; do
-            case "$result" in
-              success|skipped) ;;
-              *) echo "::error::lint/build result: $result"; exit 1 ;;
-            esac
-          done
+          # `skipped` is fine only for build, and only when scope classified
+          # the change as docs-only; code changes need a green build.
+          [ "$SCOPE" = success ] || { echo "::error::scope result: $SCOPE"; exit 1; }
+          [ "$LINT" = success ] || { echo "::error::lint result: $LINT"; exit 1; }
+          if [ "$DOCS_ONLY" = true ]; then want=skipped; else want=success; fi
+          [ "$BUILD" = "$want" ] || { echo "::error::build result: $BUILD, expected $want"; exit 1; }
   release-text:
     name: release-text
     # For a published tag whose tag run stopped before "Release text" (e.g. cancelled):
