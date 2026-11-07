@@ -65,6 +65,18 @@ class PrePushHook(unittest.TestCase):
             )
             self.assertEqual(probe.stdout.strip(), ".custom")
 
+    def test_wire_hooks_reports_already_wired_as_success(self):
+        with tempfile.TemporaryDirectory(prefix="bf hooks ") as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "--quiet", tmp], check=True)
+            (root / ".githooks").mkdir()
+            subprocess.run(
+                ["git", "config", "core.hooksPath", ".githooks"],
+                cwd=root,
+                check=True,
+            )
+            self.assertTrue(client_quality.wire_hooks(root))
+
 
 class PreCommitHook(unittest.TestCase):
     def test_hook_formats_staged_files_without_gradle(self):
@@ -182,7 +194,9 @@ class PreCommitHook(unittest.TestCase):
             git("commit", "--quiet", "-m", "fixture")
             (root / "probe.py").write_text("x=1\n", encoding="utf-8")
             git("add", "probe.py")
-            (root / "probe.py").write_text("x=1\n# scratch, never staged\n", encoding="utf-8")
+            (root / "probe.py").write_text(
+                "x=1\n# scratch, never staged\n", encoding="utf-8"
+            )
             git("commit", "--quiet", "-m", "probe")
             self.assertEqual(git("show", "HEAD:probe.py"), "x=1\n")
             self.assertEqual(

@@ -29,10 +29,11 @@ GJF_EXPORTS = [
 def wire_hooks(root=ROOT):
     """Point this checkout at the versioned hooks so pushes run the fast checks.
 
-    Only sets the repo-local core.hooksPath when it is unset; an explicit
-    repo choice is left alone. Best-effort: a checkout without git or hooks
-    must not break lint. Never touches an outer repo: subtrees without their
-    own .git are left alone.
+    Returns True when the repo-local core.hooksPath ends up as `.githooks`
+    (set just now or already). Returns False on an explicit foreign choice
+    (warned, left alone), when there is no git checkout or no `.githooks`,
+    and on write failure (reported to stderr). Never touches an outer repo:
+    subtrees without their own .git are left alone.
     """
     if not (root / ".git").exists() or not (root / ".githooks").is_dir():
         return False
@@ -47,7 +48,13 @@ def wire_hooks(root=ROOT):
         ).stdout.strip()
     except OSError:
         return False
+    if local == ".githooks":
+        return True
     if local:
+        print(
+            f"warning: keeping explicit core.hooksPath {local!r}; "
+            "versioned .githooks not wired"
+        )
         return False
     try:
         outer = subprocess.run(
@@ -72,7 +79,8 @@ def wire_hooks(root=ROOT):
             check=True,
             env=child_env(),
         )
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"warning: cannot wire versioned hooks in {root}: {error}")
         return False
     print("git pushes now run .githooks/pre-push (bypass: --no-verify)")
     return True
@@ -291,17 +299,16 @@ def format_staged():
     files = staged_files()
     if not files:
         return
-    try:
-        worktree = run(
-            "git",
-            "diff",
-            "--name-only",
-            "-z",
-            "--",
-            capture=True,
-        )
-    except subprocess.CalledProcessError:
-        worktree = ""
+    # Fail closed: if the worktree diff cannot be read, the hook must stop
+    # the commit rather than risk staging unreviewed hunks.
+    worktree = run(
+        "git",
+        "diff",
+        "--name-only",
+        "-z",
+        "--",
+        capture=True,
+    )
     dirty = {n for n in worktree.split("\0") if n} & set(files)
     if dirty:
         print(
@@ -489,7 +496,21 @@ def main():
             ) as output:
                 output.write(str(ROOT / ".cache/quality/npm/node_modules/.bin") + "\n")
         if (ROOT / ".githooks").is_dir() and not wire_hooks():
-            raise SystemExit(f"just setup: cannot wire versioned hooks in {ROOT}")
+            current = ""
+            if (ROOT / ".git").exists():
+                try:
+                    current = subprocess.run(
+                        ["git", "config", "--local", "--get", "core.hooksPath"],
+                        cwd=ROOT,
+                        env=child_env(),
+                        stdout=subprocess.PIPE,
+                        text=True,
+                        check=False,
+                    ).stdout.strip()
+                except OSError:
+                    current = ""
+            if not current and (ROOT / ".git").exists():
+                raise SystemExit(f"just setup: cannot wire versioned hooks in {ROOT}")
         return
     if mode in ("dev", "start", "test-postgres"):
         if (ROOT / "package.json").is_file():
