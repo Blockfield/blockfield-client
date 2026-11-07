@@ -46,21 +46,26 @@ jobs:
           persist-credentials: false
           # Full history: the docs-only diff needs the PR base commit.
           fetch-depth: 0
-      # The build only consumes non-docs files; unknown bases run it.
+      # The build only consumes non-docs files. Fail closed: tags, unknown bases,
+      # a failing git diff and empty diffs all run the full build.
       - name: Determine docs-only scope
         id: scope
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           docs_only=false
-          if [ -n "$BASE_SHA" ] && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+          changed="$RUNNER_TEMP/changed"
+          if [ "$GITHUB_REF_TYPE" != tag ] && [ -n "$BASE_SHA" ] \
+            && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null \
+            && git diff --name-only -z --no-renames "$BASE_SHA" HEAD > "$changed" \
+            && [ -s "$changed" ]; then
             docs_only=true
-            for f in $(git diff --name-only --no-renames "$BASE_SHA" HEAD); do
+            while IFS= read -r -d '' f; do
               case "$f" in
                 *.md | docs/* | release-notes/*) ;;
                 *) docs_only=false ;;
               esac
-            done
+            done < "$changed"
           fi
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
   # Fast, secret-free signal (~1 min: lint, format, tests, compile checks).
@@ -99,8 +104,8 @@ jobs:
     needs: [scope]
     # Notes-regeneration dispatches skip the build; everything else
     # (main/tag pushes, PR heads, maintainer dispatches) always runs, except
-    # docs-only PRs, which the scope job gates out (tags always run full).
-    if: always() && inputs.release_text_tag == '' && (github.ref_type == 'tag' || needs.scope.outputs.docs_only != 'true')
+    # docs-only changes, which the scope job gates out (it never marks tags docs-only).
+    if: always() && inputs.release_text_tag == '' && needs.scope.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
