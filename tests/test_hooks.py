@@ -77,6 +77,29 @@ class PrePushHook(unittest.TestCase):
             )
             self.assertTrue(client_quality.wire_hooks(root))
 
+    def test_wire_hooks_leaves_outer_repo_alone_on_invalid_gitdir(self):
+        with tempfile.TemporaryDirectory(prefix="bf hooks ") as tmp:
+            outer = Path(tmp)
+            subprocess.run(["git", "init", "--quiet", tmp], check=True)
+            subprocess.run(
+                ["git", "config", "core.hooksPath", "/outer/hooks"],
+                cwd=outer,
+                check=True,
+            )
+            sub = outer / "sub"
+            sub.mkdir()
+            (sub / ".git").mkdir()  # invalid git dir: git would resolve upward
+            (sub / ".githooks").mkdir()
+            self.assertFalse(client_quality.wire_hooks(sub))
+            probe = subprocess.run(
+                ["git", "config", "--local", "--get", "core.hooksPath"],
+                cwd=outer,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(probe.stdout.strip(), "/outer/hooks")
+
 
 class PreCommitHook(unittest.TestCase):
     def test_hook_formats_staged_files_without_gradle(self):
