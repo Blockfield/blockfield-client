@@ -741,3 +741,40 @@ class WireHooksStrict(unittest.TestCase):
                     config.write(b"[core]\n\thooksPath = /hooks\xff\n")
                 with contextlib.redirect_stderr(io.StringIO()):
                     self.assertFalse(module.wire_hooks(root))
+
+    def test_setup_fails_when_git_config_cannot_be_read(self):
+        import contextlib
+        import io
+
+        for module in (client_quality,):
+            with tempfile.TemporaryDirectory(prefix="bf hooks ") as tmp:
+                root = Path(tmp)
+                subprocess.run(["git", "init", "--quiet", tmp], check=True)
+                (root / ".githooks").mkdir()
+                # An unreadable hooks dir: wiring state unknown, so setup must stop.
+                with (
+                    patch.object(Path, "iterdir", side_effect=PermissionError),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
+                    self.assertFalse(module.wire_hooks(root))
+                    with self.assertRaises(SystemExit):
+                        module.wire_hooks(root, strict=True)
+
+    def test_unreadable_global_config_is_not_treated_as_unset(self):
+        import contextlib
+        import io
+
+        for module in (client_quality,):
+            with tempfile.TemporaryDirectory(prefix="bf hooks ") as tmp:
+                root = Path(tmp) / "repo"
+                subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+                (root / ".githooks").mkdir()
+                gitconfig = Path(tmp) / "gitconfig"
+                gitconfig.write_text("[core\n\thooksPath = /global/hooks\n")
+                with (
+                    patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(gitconfig)}),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
+                    self.assertFalse(module.wire_hooks(root))
+                    with self.assertRaises(SystemExit):
+                        module.wire_hooks(root, strict=True)
