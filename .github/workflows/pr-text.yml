@@ -7,7 +7,9 @@ permissions:
   contents: read
 jobs:
   text:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # The next->main release PR keeps its body: its aggregate diff is already
+    # described by the merged PRs, so the filler must not rewrite it.
+    if: github.head_ref != 'next' && github.event.pull_request.head.repo.full_name == github.repository
     # Tiny LLM-call job: GitHub-hosted is enough, keep Blacksmith for builds.
     runs-on: ubuntu-24.04
     timeout-minutes: 10

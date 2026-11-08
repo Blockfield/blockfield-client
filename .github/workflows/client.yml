@@ -130,7 +130,10 @@ jobs:
             if [ "$t" = "$tree" ]; then tested=true; break; fi
           done
           if [ "$tested" != true ]; then
-            for id in $(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/client.yml/runs?status=success&per_page=20" --jq '.workflow_runs[].id' || true); do
+            # The next->main release PR runs with head branch `next`: narrow the
+            # window to it so other PRs cannot push the release run out.
+            # (The push loop above keeps no branch filter: pushes to `next` run nothing.)
+            for id in $(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/client.yml/runs?status=success&per_page=20&branch=next" --jq '.workflow_runs[].id' || true); do
               if gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/artifacts?per_page=100" --jq '.artifacts[].name' 2>/dev/null | grep -qx "tested-tree-${tree}"; then tested=true; break; fi
             done
           fi
