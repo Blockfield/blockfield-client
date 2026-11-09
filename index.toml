@@ -296,7 +296,7 @@ metafile = true
 
 [[files]]
 file = "mods/lrtactical-fabric.pw.toml"
-hash = "835909cc67b57ff50ea959f8d77a3b0eafa05ccfa51aea912f3f414528799a3e"
+hash = "1d6b2c83c008153f76b0b16d089747c12718f0665b1fb31497b689b14005ef8f"
 metafile = true
 
 [[files]]
