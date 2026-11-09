@@ -91,6 +91,35 @@ class ClientBuildTests(unittest.TestCase):
             self.assertEqual(keys, ["c1", "deadbeef"])
             self.assertEqual(out.read_text().splitlines(), ["c1", "deadbeef"])
 
+    def test_stage_unions_two_webs_into_one_dir(self):
+        # server#233 U3: the tag publish stages the game and workshop webs
+        # into one mirror dir; shared jars dedupe, both sides land.
+        with tempfile.TemporaryDirectory() as tmp:
+            game, workshop, out = Path(tmp) / "game", Path(tmp) / "ws", Path(tmp) / "m"
+            game.mkdir()
+            workshop.mkdir()
+            (game / "shared.txt").write_bytes(b"shared")
+            (workshop / "shared.txt").write_bytes(b"shared")
+            (game / "game.txt").write_bytes(b"game")
+            (workshop / "work.txt").write_bytes(b"work")
+
+            def index(web, *names):
+                entries = "".join(
+                    '[[files]]\nfile = "%s"\nhash = "%s"\nhash-format = "sha256"\n'
+                    % (name, packlib.digest((web / name).read_bytes()))
+                    for name in names
+                )
+                (web / "index.toml").write_text(entries)
+
+            index(game, "shared.txt", "game.txt")
+            index(workshop, "shared.txt", "work.txt")
+            mirror_files.stage(game, out)
+            mirror_files.stage(workshop, out)
+            self.assertEqual(
+                {path.read_bytes() for path in out.iterdir()},
+                {b"shared", b"game", b"work"},
+            )
+
     def test_retain_dry_run_lists_kept_releases(self):
         out = io.StringIO()
         with (
