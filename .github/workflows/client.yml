@@ -163,16 +163,15 @@ jobs:
           GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
         run: just build --out dist
       # Workshop/Game split cutover (server#233 U3): the workshop pack is a
-      # lean --variant workshop build of the same tree. CI builds it but never
-      # publishes or tags it; the staged archives + build.json stay a PR
-      # artifact until the cutover units wire the release path.
+      # lean --variant workshop build of the same tree. Tags publish it to the
+      # release next to the game pack; PRs keep it as a staged artifact.
       - name: Build and verify workshop variant
-        if: ${{ !startsWith(github.ref, 'refs/tags/') && steps.same.outputs.tested != 'true' }}
+        if: ${{ steps.same.outputs.tested != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
         run: just build --out dist-workshop --variant workshop
       - name: Record workshop pack hashes
-        if: ${{ !startsWith(github.ref, 'refs/tags/') && steps.same.outputs.tested != 'true' }}
+        if: ${{ steps.same.outputs.tested != 'true' }}
         run: |
           just python -c 'import json; b = json.load(open("dist-workshop/web/build.json")); print("variant:", b["variant"]); print("workshop_inputs:", b["workshop_inputs"]); print("client:", b["client"]); print("compatibility:", b["compatibility"])'
       - name: Upload staged workshop pack
@@ -209,13 +208,24 @@ jobs:
           GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
         run: |
           just python scripts/mirror-files.py manifest dist/web dist/mirror-manifest.txt
-          files=(dist/Blockfield-client.zip dist/Blockfield-prism.zip dist/Blockfield.mrpack dist/Blockfield-web.tar dist/web/build.json dist/SHA256SUMS dist/mirror-manifest.txt)
+          just python scripts/mirror-files.py manifest dist-workshop/web dist/workshop-manifest.txt
+          sort -u dist/mirror-manifest.txt dist/workshop-manifest.txt -o dist/mirror-manifest.txt
+          cp dist-workshop/web/build.json dist/workshop-build.json
+          cp dist-workshop/Blockfield-web.tar dist/Blockfield-workshop-web.tar
+          cp dist-workshop/SHA256SUMS dist/workshop-SHA256SUMS.txt
+          sed -i 's/  Blockfield-web\.tar$/  Blockfield-workshop-web.tar/' dist/workshop-SHA256SUMS.txt
+          grep -q '  Blockfield-workshop-web\.tar$' dist/workshop-SHA256SUMS.txt
+          files=(dist/Blockfield-client.zip dist/Blockfield-prism.zip dist/Blockfield.mrpack dist/Blockfield-web.tar dist/web/build.json dist/SHA256SUMS dist/mirror-manifest.txt dist-workshop/Blockfield-workshop.zip dist-workshop/Blockfield-workshop-prism.zip dist-workshop/Blockfield-workshop.mrpack dist/Blockfield-workshop-web.tar dist/workshop-build.json dist/workshop-SHA256SUMS.txt)
           gh release upload "$GITHUB_REF_NAME" --repo Blockfield/blockfield-releases --clobber "${files[@]}"
       # Before deploy: packwiz-installer may take any file from these mirrors once the new index is live.
       # Mirrors are best effort: a file missing there comes from the next source, ultimately blockfield.pro.
+      # The workshop web is staged too (same content-addressed names, shared jars dedupe),
+      # so the union keeps both packs installable and the manifest below retains both.
       - name: Stage files for content-addressed mirrors
         if: github.ref_type == 'tag'
-        run: just python scripts/mirror-files.py stage dist/web dist/mirror
+        run: |
+          just python scripts/mirror-files.py stage dist/web dist/mirror
+          just python scripts/mirror-files.py stage dist-workshop/web dist/mirror
       - name: Publish files to the R2 mirror
         if: github.ref_type == 'tag'
         continue-on-error: true
