@@ -213,6 +213,8 @@ jobs:
           cp dist-workshop/web/build.json dist/workshop-build.json
           cp dist-workshop/Blockfield-web.tar dist/Blockfield-workshop-web.tar
           cp dist-workshop/SHA256SUMS dist/workshop-SHA256SUMS.txt
+          sed -i 's/  Blockfield-web\.tar$/  Blockfield-workshop-web.tar/' dist/workshop-SHA256SUMS.txt
+          grep -q '  Blockfield-workshop-web\.tar$' dist/workshop-SHA256SUMS.txt
           files=(dist/Blockfield-client.zip dist/Blockfield-prism.zip dist/Blockfield.mrpack dist/Blockfield-web.tar dist/web/build.json dist/SHA256SUMS dist/mirror-manifest.txt dist-workshop/Blockfield-workshop.zip dist-workshop/Blockfield-workshop-prism.zip dist-workshop/Blockfield-workshop.mrpack dist/Blockfield-workshop-web.tar dist/workshop-build.json dist/workshop-SHA256SUMS.txt)
           gh release upload "$GITHUB_REF_NAME" --repo Blockfield/blockfield-releases --clobber "${files[@]}"
       # Before deploy: packwiz-installer may take any file from these mirrors once the new index is live.
