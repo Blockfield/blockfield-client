@@ -166,7 +166,7 @@ metafile = true
 
 [[files]]
 file = "mods/blockfield-client.pw.toml"
-hash = "76263b810aca73acf956ffed19ca09b9e8aef4b46626d563f1a881594cb654f0"
+hash = "c3fcda07d42bc1f91b4990f082a57e779937065eab92734766d412e9c720e371"
 metafile = true
 
 [[files]]
