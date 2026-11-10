@@ -1,8 +1,8 @@
-name = "blockfield-client v1.61.0"
-filename = "blockfield-client-1.61.0+mc1.21.1.jar"
+name = "blockfield-client v1.61.1"
+filename = "blockfield-client-1.61.1+mc1.21.1.jar"
 side = "client"
 
 [download]
-url = "https://github.com/Blockfield/blockfield-mod/releases/download/v1.61.0/blockfield-client-1.61.0+mc1.21.1.jar"
+url = "https://github.com/Blockfield/blockfield-mod/releases/download/v1.61.1/blockfield-client-1.61.1+mc1.21.1.jar"
 hash-format = "sha1"
-hash = "08e159ef664d1d70bcbf8a05e5697859a12b1ce7"
+hash = "063141bdb960a711e559fab5d769e3b98c2771ce"
