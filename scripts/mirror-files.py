@@ -62,7 +62,10 @@ def mirror_files(web):
 
 
 def stage(web, out):
-    out.mkdir(parents=True)
+    # exist_ok: the tag publish stages the game and workshop webs into one
+    # mirror dir (server#233 U3); shared jars dedupe by content-hash name,
+    # the copyfile fallback overwrites them with identical bytes.
+    out.mkdir(parents=True, exist_ok=True)
     for name, path in mirror_files(web).items():
         try:
             os.link(path, out / name)

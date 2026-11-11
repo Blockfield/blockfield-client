@@ -166,7 +166,7 @@ metafile = true
 
 [[files]]
 file = "mods/blockfield-client.pw.toml"
-hash = "edbacdcb4ae861585bb596a18475981a46e59b2e3b99e622d02a6a8db8c0220f"
+hash = "c3fcda07d42bc1f91b4990f082a57e779937065eab92734766d412e9c720e371"
 metafile = true
 
 [[files]]
@@ -296,7 +296,7 @@ metafile = true
 
 [[files]]
 file = "mods/lrtactical-fabric.pw.toml"
-hash = "835909cc67b57ff50ea959f8d77a3b0eafa05ccfa51aea912f3f414528799a3e"
+hash = "1d6b2c83c008153f76b0b16d089747c12718f0665b1fb31497b689b14005ef8f"
 metafile = true
 
 [[files]]
@@ -526,7 +526,7 @@ metafile = true
 
 [[files]]
 file = "mods/tacz-refabricated.pw.toml"
-hash = "fe8a15d33bd00ce07ad770ea303d7f9f77ee3f8fd40a955f17885a1a322fac4c"
+hash = "8e3510800eb83bef00942988fda7e5420e8beca9ec9a2efee074e23404a3f7bf"
 metafile = true
 
 [[files]]

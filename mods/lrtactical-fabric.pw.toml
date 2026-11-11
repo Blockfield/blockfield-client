@@ -1,8 +1,8 @@
 name = "[UNOFFICIAL] LRTactical Fabric (пропатчен для выделенного сервера)"
-filename = "lrtactical-1.21.1-0.4.1-bf5.jar"
+filename = "lrtactical-1.21.1-0.4.1-bf6.jar"
 side = "both"
 
 [download]
-url = "https://github.com/Blockfield/lr-tactical/releases/download/bf5/lrtactical-1.21.1-0.4.1-bf5.jar"
+url = "https://github.com/Blockfield/lr-tactical/releases/download/bf6/lrtactical-1.21.1-0.4.1-bf6.jar"
 hash-format = "sha512"
-hash = "743e887541a0c230cb0ad9825db3f126120e26c9da8ffbaba7870a1ac95cbb869cdf16a5a0a708e77f995a835b7ef4ab6771475c1bf37330a88efc55cc5cb441"
+hash = "6bedf5247c271b83c985eadd5d3290720157f52155ea7bb2c968b38749e5d0a5af68411a436c3a44d80965443a9208d81bce926b4462b01bc0b11a767710557f"
