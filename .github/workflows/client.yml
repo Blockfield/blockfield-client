@@ -169,11 +169,11 @@ jobs:
         if: ${{ steps.same.outputs.tested != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
-        run: just build --out dist-workshop --variant workshop
+        run: just build --out dist-workshop --variant workshop --public-base https://blockfield.pro/workshop-pack
       - name: Record workshop pack hashes
         if: ${{ steps.same.outputs.tested != 'true' }}
         run: |
-          just python -c 'import json; b = json.load(open("dist-workshop/web/build.json")); print("variant:", b["variant"]); print("workshop_inputs:", b["workshop_inputs"]); print("client:", b["client"]); print("compatibility:", b["compatibility"])'
+          just python -c 'import json; b = json.load(open("dist-workshop/web/build.json")); print("variant:", b["variant"]); print("workshop_inputs:", b["workshop_inputs"]); print("client:", b["client"]); print("compatibility:", b["compatibility"]); l = json.load(open("dist-workshop/web/launcher.json")); print("launcher pack:", l["pack"]); print("launcher server:", l["server"])'
       - name: Upload staged workshop pack
         if: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && steps.same.outputs.tested != 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -186,6 +186,7 @@ jobs:
             dist-workshop/web/build.json
             dist-workshop/web/pack.toml
             dist-workshop/web/index.toml
+            dist-workshop/web/launcher.json
             dist-workshop/SHA256SUMS
           retention-days: 7
           if-no-files-found: error
@@ -211,11 +212,8 @@ jobs:
           just python scripts/mirror-files.py manifest dist-workshop/web dist/workshop-manifest.txt
           sort -u dist/mirror-manifest.txt dist/workshop-manifest.txt -o dist/mirror-manifest.txt
           cp dist-workshop/web/build.json dist/workshop-build.json
-          cp dist-workshop/Blockfield-web.tar dist/Blockfield-workshop-web.tar
           cp dist-workshop/SHA256SUMS dist/workshop-SHA256SUMS.txt
-          sed -i 's/  Blockfield-web\.tar$/  Blockfield-workshop-web.tar/' dist/workshop-SHA256SUMS.txt
-          grep -q '  Blockfield-workshop-web\.tar$' dist/workshop-SHA256SUMS.txt
-          files=(dist/Blockfield-client.zip dist/Blockfield-prism.zip dist/Blockfield.mrpack dist/Blockfield-web.tar dist/web/build.json dist/SHA256SUMS dist/mirror-manifest.txt dist-workshop/Blockfield-workshop.zip dist-workshop/Blockfield-workshop-prism.zip dist-workshop/Blockfield-workshop.mrpack dist/Blockfield-workshop-web.tar dist/workshop-build.json dist/workshop-SHA256SUMS.txt)
+          files=(dist/Blockfield-client.zip dist/Blockfield-prism.zip dist/Blockfield.mrpack dist/Blockfield-web.tar dist/web/build.json dist/SHA256SUMS dist/mirror-manifest.txt dist-workshop/Blockfield-workshop.zip dist-workshop/Blockfield-workshop-prism.zip dist-workshop/Blockfield-workshop.mrpack dist-workshop/Blockfield-workshop-web.tar dist/workshop-build.json dist/workshop-SHA256SUMS.txt)
           gh release upload "$GITHUB_REF_NAME" --repo Blockfield/blockfield-releases --clobber "${files[@]}"
       # Before deploy: packwiz-installer may take any file from these mirrors once the new index is live.
       # Mirrors are best effort: a file missing there comes from the next source, ultimately blockfield.pro.
