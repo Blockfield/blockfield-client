@@ -43,6 +43,9 @@ WORKSHOP_FILES = (
     "build.json",
 )
 WEB_TAR = "Blockfield-web.tar"
+WORKSHOP_WEB_TAR = "Blockfield-workshop-web.tar"
+WORKSHOP_SERVER = "raknet;workshop.blockfield.pro:25567"
+GAME_SERVER = "raknet;play.blockfield.pro:25566"
 FILES_MTIME = 315532800
 
 
@@ -190,17 +193,33 @@ def build(args):
     )
     defaults["config/blockfield-pack-version.txt"] = (client + "\n").encode()
     defaults["config/blockfield-pack-contract.txt"] = (contract + "\n").encode()
-    archive_defaults = {
-        name: data for name, data in defaults.items() if name != "options.txt"
-    }
-    web = out / "web"
-    web.mkdir(parents=True)
     version, mc, loader = (
         pack["version"],
         pack["versions"]["minecraft"],
         pack["versions"]["fabric"],
     )
     base = args.public_base.rstrip("/")
+    if workshop and base == "https://blockfield.pro":
+        # The Workshop pack lives under /workshop-pack/; a bare game base here
+        # would point its manifest downloads at the game pack files.
+        base = "https://blockfield.pro/workshop-pack"
+    server = WORKSHOP_SERVER if workshop else GAME_SERVER
+    if workshop:
+        # The Workshop profile fetches {workshop_base}/launcher.json and expects
+        # info.pack under the same base with the Workshop server. One source of
+        # truth: patch defaults before the index is computed and any file is
+        # written, so the index hash matches the bytes on disk.
+        workshop_launcher = dict(json.loads((root / "launcher.json").read_text()))
+        workshop_launcher["pack"] = f"{base}/pack.toml"
+        workshop_launcher["server"] = server
+        defaults["launcher.json"] = (
+            json.dumps(workshop_launcher, indent=2) + "\n"
+        ).encode()
+    archive_defaults = {
+        name: data for name, data in defaults.items() if name != "options.txt"
+    }
+    web = out / "web"
+    web.mkdir(parents=True)
     client_files, metadata, manifest = dict(archive_defaults), {}, []
     checks = {
         "version": version,
@@ -246,7 +265,7 @@ def build(args):
     instance_name = "Blockfield-Workshop" if workshop else "Blockfield"
     client_files["ЧИТАЙ.txt"] = (
         f"{instance_name} {version}\nMinecraft {mc}, Fabric {loader}.\n"
-        "Распакуйте в папку игры. Сервер: raknet;play.blockfield.pro:25566\n"
+        f"Распакуйте в папку игры. Сервер: {server}\n"
         f"Для автоматического обновления используйте Blockfield Launcher или {prism_name}.\n"
     ).encode()
     write_zip(out / client_name, client_files)
@@ -278,7 +297,7 @@ def build(args):
     cfg = (
         f"[General]\nConfigVersion=1.3\nInstanceType=OneSix\nname={instance_name}\nOverrideCommands=true\n"
         f"PreLaunchCommand=$INST_JAVA -jar packwiz-installer-bootstrap.jar --bootstrap-no-update -g -s client {base}/pack.toml\n"
-        "JoinServerOnLaunch=true\nJoinServerOnLaunchAddress=raknet;play.blockfield.pro:25566\n"
+        f"JoinServerOnLaunch=true\nJoinServerOnLaunchAddress={server}\n"
     )
     write_zip(
         out / prism_name,
@@ -330,8 +349,12 @@ def build(args):
             "mirrors.json": json.dumps(mirrors, indent=2).encode(),
         },
     )
-    for name in ("launcher.json", "content.json"):
+    for name in ("content.json",):
         shutil.copy2(root / name, web / name)
+    # web/launcher.json already holds defaults["launcher.json"] via write_tree
+    # (workshop override applied before the index, so hashes match on disk).
+    if not workshop:
+        shutil.copy2(root / "launcher.json", web / "launcher.json")
     verify(out, resolved, defaults, names)
     for name in (prism_name, mrpack_name):
         shutil.copy2(out / name, web / name)
@@ -347,9 +370,10 @@ def build(args):
     )
     shutil.copy2(web / "SHA256SUMS", out / "SHA256SUMS")
     # The tar holds web/SHA256SUMS, so only the release copy of the sums can list the tar itself.
-    write_tar(out / WEB_TAR, web, FILES_MTIME)
+    tar_name = WORKSHOP_WEB_TAR if workshop else WEB_TAR
+    write_tar(out / tar_name, web, FILES_MTIME)
     with (out / "SHA256SUMS").open("a", encoding="utf-8", newline="\n") as sums:
-        sums.write(f"{digest((out / WEB_TAR).read_bytes())}  {WEB_TAR}\n")
+        sums.write(f"{digest((out / tar_name).read_bytes())}  {tar_name}\n")
     print(
         f"Verified {len(resolved)} client mods; client {version}; digest {client}; compatibility {contract}"
     )

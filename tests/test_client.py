@@ -835,6 +835,208 @@ class ClientBuildTests(unittest.TestCase):
                     self.assertNotIn("mods/game-1.jar", archive.namelist())
                     self.assertNotIn("config/game.toml", archive.namelist())
 
+    def test_workshop_launcher_points_at_workshop_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bundle = b"PK-test-mod"
+            installer = b"PK-test-installer"
+            mod = {
+                "name": "Kept",
+                "filename": "kept-1.jar",
+                "side": "both",
+                "download": {
+                    "url": "https://example.test/kept.jar",
+                    "hash-format": "sha256",
+                    "hash": packlib.digest(bundle),
+                },
+            }
+            (root / "pack.toml").write_text(
+                'name = "Blockfield"\nversion = "1.0.0"\n[versions]\nminecraft = "1.21.1"\nfabric = "0.19.3"\n[index]\nhash-format = "sha256"\nhash = "'
+                + packlib.digest(b"files = []\n")
+                + '"\n',
+                encoding="utf-8",
+                newline="\n",
+            )
+            (root / "index.toml").write_text(
+                "files = []\n", encoding="utf-8", newline="\n"
+            )
+            (root / "pack-workshop.txt").write_text(
+                "[mods]\nkept.pw.toml\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            (root / "launcher.json").write_text(
+                json.dumps(
+                    {
+                        "pack": "https://blockfield.pro/pack.toml",
+                        "server": "raknet;play.blockfield.pro:25566",
+                        **{
+                            k: {
+                                "url": "https://example.test/installer.jar",
+                                "sha256": packlib.digest(installer),
+                            }
+                            for k in ("bootstrap", "installer")
+                        },
+                    }
+                ),
+                encoding="utf-8",
+                newline="\n",
+            )
+            (root / "content.json").write_text("{}", encoding="utf-8", newline="\n")
+            (root / "mirrors.json").write_text("[]", encoding="utf-8", newline="\n")
+            base = "https://blockfield.pro/workshop-pack"
+            args = SimpleNamespace(
+                root=root, out=root / "out", public_base=base, variant="workshop"
+            )
+            with (
+                patch.object(
+                    client, "inventory", return_value=([("mods/kept.pw.toml", mod)], {})
+                ),
+                patch.object(
+                    client,
+                    "resolve_mod",
+                    return_value=("mods/kept.pw.toml", mod, "mods/kept-1.jar", bundle),
+                ),
+                patch.object(client, "get_bytes", return_value=installer),
+                patch.object(client, "git_head", return_value="public-commit"),
+            ):
+                client.build(args)
+                launcher = json.loads((args.out / "web/launcher.json").read_text())
+                self.assertEqual(launcher["pack"], f"{base}/pack.toml")
+                self.assertEqual(launcher["server"], client.WORKSHOP_SERVER)
+                build = json.loads((args.out / "web/build.json").read_text())
+                self.assertEqual(build["variant"], "workshop")
+                self.assertTrue((args.out / "Blockfield-workshop-web.tar").is_file())
+                self.assertFalse((args.out / "Blockfield-web.tar").exists())
+                sums = (args.out / "SHA256SUMS").read_text()
+                self.assertIn("  Blockfield-workshop-web.tar\n", sums)
+                with zipfile.ZipFile(
+                    args.out / "Blockfield-workshop-prism.zip"
+                ) as archive:
+                    cfg = archive.read("instance.cfg").decode()
+                    self.assertIn(f"{base}/pack.toml", cfg)
+                    self.assertIn(client.WORKSHOP_SERVER, cfg)
+
+    def _workshop_fixture(self, tmp, base):
+        root = Path(tmp) / "ws"
+        root.mkdir()
+        bundle = b"PK-test-mod"
+        installer = b"PK-test-installer"
+        mod = {
+            "name": "Kept",
+            "filename": "kept-1.jar",
+            "side": "both",
+            "download": {
+                "url": "https://example.test/kept.jar",
+                "hash-format": "sha256",
+                "hash": packlib.digest(bundle),
+            },
+        }
+        (root / "pack.toml").write_text(
+            'name = "Blockfield"\nversion = "1.0.0"\n[versions]\nminecraft = "1.21.1"\nfabric = "0.19.3"\n[index]\nfile = "index.toml"\nhash-format = "sha256"\nhash = "'
+            + packlib.digest(b"files = []\n")
+            + '"\n',
+            encoding="utf-8",
+            newline="\n",
+        )
+        (root / "index.toml").write_text("files = []\n", encoding="utf-8", newline="\n")
+        (root / "pack-workshop.txt").write_text(
+            "[mods]\nkept.pw.toml\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        (root / "launcher.json").write_text(
+            json.dumps(
+                {
+                    "pack": "https://blockfield.pro/pack.toml",
+                    "server": "raknet;play.blockfield.pro:25566",
+                    **{
+                        k: {
+                            "url": "https://example.test/installer.jar",
+                            "sha256": packlib.digest(installer),
+                        }
+                        for k in ("bootstrap", "installer")
+                    },
+                }
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        (root / "content.json").write_text("{}", encoding="utf-8", newline="\n")
+        (root / "mirrors.json").write_text("[]", encoding="utf-8", newline="\n")
+        return root, mod, bundle, installer
+
+    def _build_workshop(self, root, mod, bundle, installer, base):
+        args = SimpleNamespace(
+            root=root, out=root / "out", public_base=base, variant="workshop"
+        )
+        # Like the real inventory: the index tracks launcher.json, so the bug
+        # (index hashing pre-rewrite bytes) can manifest.
+        defaults = {
+            "launcher.json": (root / "launcher.json").read_bytes(),
+            "options.txt": b"",
+        }
+        with (
+            patch.object(
+                client,
+                "inventory",
+                return_value=([("mods/kept.pw.toml", mod)], defaults),
+            ),
+            patch.object(
+                client,
+                "resolve_mod",
+                return_value=("mods/kept.pw.toml", mod, "mods/kept-1.jar", bundle),
+            ),
+            patch.object(client, "get_bytes", return_value=installer),
+            patch.object(client, "git_head", return_value="public-commit"),
+        ):
+            client.build(args)
+        return args.out
+
+    def test_workshop_index_hashes_match_files_on_disk(self):
+        # Release PR #35 [major]: the Workshop launcher.json was rewritten
+        # AFTER distribution_index() hashed it, so packwiz failed its checksum.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = "https://blockfield.pro/workshop-pack"
+            out = self._build_workshop(*self._workshop_fixture(tmp, base), base)
+            web = out / "web"
+            index = tomllib.loads((web / "index.toml").read_text())
+            self.assertTrue(index["files"])
+            for entry in index["files"]:
+                with self.subTest(file=entry["file"]):
+                    data = (web / entry["file"]).read_bytes()
+                    self.assertEqual(packlib.digest(data), entry["hash"])
+
+    def test_workshop_pack_resolves_like_packwiz(self):
+        # Resolve the Workshop pack the way the launcher/packwiz does:
+        # launcher.json -> pack.toml -> index.toml -> file hashes.
+        with tempfile.TemporaryDirectory() as tmp:
+            out = self._build_workshop(
+                *self._workshop_fixture(tmp, "https://blockfield.pro"),
+                "https://blockfield.pro",
+            )
+            web = out / "web"
+            base = "https://blockfield.pro/workshop-pack"
+            launcher = json.loads((web / "launcher.json").read_text())
+            self.assertEqual(launcher["pack"], f"{base}/pack.toml")
+            self.assertEqual(launcher["server"], client.WORKSHOP_SERVER)
+            pack = tomllib.loads((web / "pack.toml").read_text())
+            index_raw = (web / pack["index"]["file"]).read_bytes()
+            self.assertEqual(packlib.digest(index_raw), pack["index"]["hash"])
+            for entry in tomllib.loads(index_raw.decode())["files"]:
+                with self.subTest(file=entry["file"]):
+                    data = (web / entry["file"]).read_bytes()
+                    self.assertEqual(packlib.digest(data), entry["hash"])
+                    if entry.get("metafile"):
+                        download = tomllib.loads(data.decode())["download"]
+                        prefix = base + "/files/"
+                        self.assertTrue(download["url"].startswith(prefix))
+                        blob = (web / download["url"][len(base) + 1 :]).read_bytes()
+                        self.assertEqual(
+                            packlib.digest(blob, download["hash-format"]),
+                            download["hash"],
+                        )
+
     def test_resource_archive_is_pinned_and_cannot_escape_its_prefix(self):
         import io
         import zipfile
