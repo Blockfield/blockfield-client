@@ -193,11 +193,6 @@ def build(args):
     )
     defaults["config/blockfield-pack-version.txt"] = (client + "\n").encode()
     defaults["config/blockfield-pack-contract.txt"] = (contract + "\n").encode()
-    archive_defaults = {
-        name: data for name, data in defaults.items() if name != "options.txt"
-    }
-    web = out / "web"
-    web.mkdir(parents=True)
     version, mc, loader = (
         pack["version"],
         pack["versions"]["minecraft"],
@@ -209,6 +204,22 @@ def build(args):
         # would point its manifest downloads at the game pack files.
         base = "https://blockfield.pro/workshop-pack"
     server = WORKSHOP_SERVER if workshop else GAME_SERVER
+    if workshop:
+        # The Workshop profile fetches {workshop_base}/launcher.json and expects
+        # info.pack under the same base with the Workshop server. One source of
+        # truth: patch defaults before the index is computed and any file is
+        # written, so the index hash matches the bytes on disk.
+        workshop_launcher = dict(json.loads((root / "launcher.json").read_text()))
+        workshop_launcher["pack"] = f"{base}/pack.toml"
+        workshop_launcher["server"] = server
+        defaults["launcher.json"] = (
+            json.dumps(workshop_launcher, indent=2) + "\n"
+        ).encode()
+    archive_defaults = {
+        name: data for name, data in defaults.items() if name != "options.txt"
+    }
+    web = out / "web"
+    web.mkdir(parents=True)
     client_files, metadata, manifest = dict(archive_defaults), {}, []
     checks = {
         "version": version,
@@ -340,18 +351,9 @@ def build(args):
     )
     for name in ("content.json",):
         shutil.copy2(root / name, web / name)
-    if workshop:
-        # The Workshop profile fetches {workshop_base}/launcher.json and expects
-        # info.pack under the same base with the Workshop server.
-        workshop_launcher = dict(launcher)
-        workshop_launcher["pack"] = f"{base}/pack.toml"
-        workshop_launcher["server"] = server
-        (web / "launcher.json").write_text(
-            json.dumps(workshop_launcher, indent=2) + "\n",
-            encoding="utf-8",
-            newline="\n",
-        )
-    else:
+    # web/launcher.json already holds defaults["launcher.json"] via write_tree
+    # (workshop override applied before the index, so hashes match on disk).
+    if not workshop:
         shutil.copy2(root / "launcher.json", web / "launcher.json")
     verify(out, resolved, defaults, names)
     for name in (prism_name, mrpack_name):
