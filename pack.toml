@@ -1,6 +1,6 @@
 name = "Blockfield"
 author = "Blockfield"
-version = "2.79.4"
+version = "2.79.5"
 pack-format = "packwiz:1.1.0"
 
 [index]
