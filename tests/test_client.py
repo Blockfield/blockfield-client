@@ -245,7 +245,7 @@ class ClientBuildTests(unittest.TestCase):
         from http.server import BaseHTTPRequestHandler, HTTPServer
 
         body = b"R2 mirror probe bytes"
-        served = {"/abc123": body}
+        served = {"/abc123": body, "/empty0": b""}
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
@@ -262,6 +262,10 @@ class ClientBuildTests(unittest.TestCase):
                 blob = data
                 status = 200
                 ranges = self.headers.get("Range")
+                if ranges and not data:
+                    self.send_response(416)
+                    self.end_headers()
+                    return
                 if ranges:
                     start, _, end = ranges.removeprefix("bytes=").partition("-")
                     blob = data[int(start or 0) : (int(end) + 1 if end else None)]
@@ -282,7 +286,7 @@ class ClientBuildTests(unittest.TestCase):
         thread.start()
         try:
             base = f"http://127.0.0.1:{server.server_port}"
-            missing = mirror_files.verify_keys(["abc123", "deadbeef"], base)
+            missing = mirror_files.verify_keys(["abc123", "empty0", "deadbeef"], base)
             self.assertEqual(missing, ["deadbeef"])
         finally:
             server.shutdown()
