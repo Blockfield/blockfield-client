@@ -20,6 +20,7 @@ import tempfile
 import time
 import tomllib
 import urllib.parse
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -370,8 +371,14 @@ def fetch_status(url, headers=(), timeout=30):
     request = urllib.request.Request(
         url, headers={"User-Agent": "Blockfield-CI/1.0", **dict(headers)}
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.status, response.read(2)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, response.read(2)
+    except urllib.error.HTTPError as error:
+        # urllib raises on non-2xx; a 0-byte object answers a Range GET with 416.
+        if error.code == 416:
+            return 416, b""
+        raise
 
 
 def verify_keys(keys, base, workers=16, timeout=30):
