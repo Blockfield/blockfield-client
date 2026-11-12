@@ -366,7 +366,10 @@ def write_manifest_copies(game, workshop, out):
 
 def fetch_status(url, headers=(), timeout=30):
     """(status, first chunk): Range-capable GET, redirects followed."""
-    request = urllib.request.Request(url, headers=dict(headers))
+    # Cloudflare answers 403 to the default Python-urllib agent.
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "Blockfield-CI/1.0", **dict(headers)}
+    )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.status, response.read(2)
 
@@ -425,7 +428,9 @@ def check(web):
             .replace("{hash}", probe["hash"])
         )
         try:
-            request = urllib.request.Request(url)
+            request = urllib.request.Request(
+                url, headers={"User-Agent": "Blockfield-CI/1.0"}
+            )
             digest = hashlib.sha512()
             with urllib.request.urlopen(request, timeout=300) as response:
                 while chunk := response.read(1 << 20):
