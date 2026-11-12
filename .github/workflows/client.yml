@@ -341,7 +341,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 1
-      - uses: actions/setup-python@ece7cb06caefa5fff741860d0648c61a # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12.10"
       - run: python -I -X utf8 scripts/toolchain.py --ci
