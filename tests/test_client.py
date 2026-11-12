@@ -249,6 +249,11 @@ class ClientBuildTests(unittest.TestCase):
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
+                # Like Cloudflare on the R2 domain: the default urllib agent is refused.
+                if self.headers.get("User-Agent", "").startswith("Python-urllib"):
+                    self.send_response(403)
+                    self.end_headers()
+                    return
                 data = served.get(self.path)
                 if data is None:
                     self.send_response(404)
