@@ -338,114 +338,6 @@ def github(out, repo, tag, current=""):
     )
 
 
-# Stable manifest copies for the launcher's GitHub fallback: the launcher
-# fetches launcher.json/pack.toml from the pack host first and these exact
-# asset names second. Client CI republishes them on every tag release.
-MANIFEST_RELEASE_BASE = (
-    "https://github.com/Blockfield/blockfield-pack-mirror/releases/download/manifest"
-)
-
-
-def _same_bytes(first, second):
-    return first.read_bytes() == second.read_bytes()
-
-
-def _flatten_index_sidecars(index_text, prefix=""):
-    """Rewrite metafile `file` entries to flat fallback asset names.
-
-    The installer fetches every sidecar by its index path from the pack base,
-    and a GitHub release serves only flat asset names. Content hashes are
-    untouched: only the lookup path changes, so published sidecars stay
-    byte-identical to the built pack. Returns (new index text, [(flat name,
-    original path)]); refuses to silently drop a metafile entry.
-    """
-    blocks = index_text.split("[[files]]")
-    out = [blocks[0]]
-    sidecars = []
-    for block in blocks[1:]:
-        match = re.search(r'(?m)^file = "([^"]+)"$', block)
-        if match and "metafile = true" in block:
-            original = match.group(1)
-            if "/" not in original:
-                raise SystemExit(f"cannot flatten sidecar path {original!r}")
-            flat = prefix + original.split("/")[-1]
-            sidecars.append((flat, original))
-            block = block.replace(f'file = "{original}"', f'file = "{flat}"', 1)
-        out.append(block)
-    rewritten = "[[files]]".join(out)
-    total = len(re.findall(r"(?m)^metafile = true$", index_text))
-    if total != len(sidecars):
-        raise SystemExit(
-            f"index has {total} metafile entries, flattened {len(sidecars)}"
-        )
-    if not sidecars:
-        raise SystemExit("index has no metafile entries to publish")
-    return rewritten, sidecars
-
-
-def write_manifest_copies(game, workshop, out):
-    """Stable fallback copies: manifests, indexes, mirrors.json, sidecars.
-
-    The launcher fetches launcher.json/pack.toml from the pack host first and
-    these exact asset names second; client CI republishes them on every tag
-    release. Content files and jars resolve through the content-hash mirrors
-    (the installer tries those first), but manifests, indexes, mirrors.json
-    and .pw.toml sidecars are fetched by path from the pack base, so they are
-    co-published here. The fallback release is flat: the workshop index and
-    its sidecars go under distinct names, and both pack.toml copies carry the
-    hash of their published index bytes.
-    """
-    out.mkdir(parents=True, exist_ok=True)
-    for web, flat, prefix in (
-        (game, "index.toml", ""),
-        (workshop, "workshop-index.toml", "workshop-"),
-    ):
-        index_text, sidecars = _flatten_index_sidecars(
-            (web / "index.toml").read_text(), prefix
-        )
-        (out / flat).write_text(index_text)
-        for name, original in sidecars:
-            shutil.copyfile(web / original, out / name)
-    # mirrors.json is byte-identical for both packs (same probe and mirror
-    # list); the installer requests it from the pack base, so co-publish it.
-    shutil.copyfile(game / "mirrors.json", out / "mirrors.json")
-    # Player-preserved root files the installer fetches by path when the hash
-    # mirrors are skipped: byte-identical for both packs, safe to share one
-    # flat copy (preserve = true: never overwritten when present).
-    for name in ("options.txt", "servers.dat"):
-        if (game / name).is_file():
-            if not _same_bytes(game / name, workshop / name):
-                raise SystemExit(f"{name} differs between packs: no flat copy")
-            shutil.copyfile(game / name, out / name)
-    for web, name, index_name in (
-        (game, "pack.toml", "index.toml"),
-        (workshop, "workshop-pack.toml", "workshop-index.toml"),
-    ):
-        text = (web / "pack.toml").read_text()
-        digest = hashlib.sha256((out / index_name).read_bytes()).hexdigest()
-        patched = re.sub(r'(?m)^file = "index\.toml"$', f'file = "{index_name}"', text)
-        if f'file = "{index_name}"' not in patched:
-            raise SystemExit(f"{name} has no index file entry to rewire")
-        patched, hashes = re.subn(
-            r'(?m)^hash = "[0-9a-f]+"$', f'hash = "{digest}"', patched, count=1
-        )
-        if not hashes:
-            raise SystemExit(f"{name} has no index hash entry to rewire")
-        (out / name).write_text(patched)
-    for web, name, pack in (
-        (game, "launcher.json", f"{MANIFEST_RELEASE_BASE}/pack.toml"),
-        (
-            workshop,
-            "workshop-launcher.json",
-            f"{MANIFEST_RELEASE_BASE}/workshop-pack.toml",
-        ),
-    ):
-        data = json.loads((web / "launcher.json").read_text())
-        data["pack"] = pack
-        (out / name).write_text(json.dumps(data, indent=2) + "\n")
-    print(f"Wrote {len(list(out.iterdir()))} manifest files in {out}")
-
-
 def fetch_status(url, headers=(), timeout=30):
     """(status, first chunk): Range-capable GET, redirects followed."""
     # Cloudflare answers 403 to the default Python-urllib agent.
@@ -540,8 +432,6 @@ if __name__ == "__main__":
         stage(Path(args[0]), Path(args[1]))
     elif command == "manifest":
         write_manifest(Path(args[0]), Path(args[1]))
-    elif command == "manifests":
-        write_manifest_copies(Path(args[0]), Path(args[1]), Path(args[2]))
     elif command == "verify":
         verify(Path(args[0]), args[1])
     elif command == "check":

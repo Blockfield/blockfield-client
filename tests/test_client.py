@@ -1,6 +1,5 @@
 import importlib.util
 import io
-import hashlib
 import json
 import subprocess
 import sys
@@ -348,86 +347,6 @@ class ClientBuildTests(unittest.TestCase):
         finally:
             server.shutdown()
             thread.join()
-
-    def test_manifests_writes_github_fallback_copies(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            game, workshop, out = (
-                Path(tmp) / "game",
-                Path(tmp) / "workshop",
-                Path(tmp) / "out",
-            )
-            index = (
-                'hash-format = "sha256"\n'
-                '[[files]]\nfile = "config/a.txt"\nhash = "00"\n'
-                '[[files]]\nfile = "mods/m.pw.toml"\nhash = "11"\nmetafile = true\n'
-            )
-            for web, version in ((game, "1.2.3"), (workshop, "1.2.3-workshop")):
-                (web / "mods").mkdir(parents=True)
-                (web / "index.toml").write_text(index)
-                (web / "mirrors.json").write_text('{"mirrors": []}')
-                (web / "options.txt").write_text("options")
-                (web / "servers.dat").write_text("servers")
-                (web / "mods" / "m.pw.toml").write_text("sidecar")
-                (web / "pack.toml").write_text(
-                    '[index]\nfile = "index.toml"\nhash-format = "sha256"\n'
-                    'hash = "ab12"\n[versions]\nversion = "%s"\n' % version
-                )
-            (game / "launcher.json").write_text(
-                json.dumps({"pack": "https://blockfield.pro/pack.toml", "n": 1})
-            )
-            (workshop / "launcher.json").write_text(
-                json.dumps(
-                    {
-                        "pack": "https://blockfield.pro/workshop-pack/pack.toml",
-                        "n": 2,
-                    }
-                )
-            )
-            mirror_files.write_manifest_copies(game, workshop, out)
-            names = sorted(path.name for path in out.iterdir())
-            self.assertEqual(
-                names,
-                [
-                    "index.toml",
-                    "launcher.json",
-                    "m.pw.toml",
-                    "mirrors.json",
-                    "options.txt",
-                    "pack.toml",
-                    "servers.dat",
-                    "workshop-index.toml",
-                    "workshop-launcher.json",
-                    "workshop-m.pw.toml",
-                    "workshop-pack.toml",
-                ],
-            )
-            self.assertEqual(
-                json.loads((out / "launcher.json").read_text())["pack"],
-                mirror_files.MANIFEST_RELEASE_BASE + "/pack.toml",
-            )
-            self.assertEqual(
-                json.loads((out / "workshop-launcher.json").read_text())["pack"],
-                mirror_files.MANIFEST_RELEASE_BASE + "/workshop-pack.toml",
-            )
-            # Sidecar lookups go flat, other entries and content hashes stay.
-            game_index = (out / "index.toml").read_text()
-            self.assertIn('file = "m.pw.toml"', game_index)
-            self.assertNotIn("mods/", game_index)
-            self.assertIn('file = "config/a.txt"', game_index)
-            work_index = (out / "workshop-index.toml").read_text()
-            self.assertIn('file = "workshop-m.pw.toml"', work_index)
-            self.assertNotIn("mods/", work_index)
-            self.assertEqual((out / "m.pw.toml").read_bytes(), b"sidecar")
-            self.assertEqual((out / "workshop-m.pw.toml").read_bytes(), b"sidecar")
-            # Each pack.toml names its published index and its hash.
-            for name, index_name in (
-                ("pack.toml", "index.toml"),
-                ("workshop-pack.toml", "workshop-index.toml"),
-            ):
-                text = (out / name).read_text()
-                self.assertIn(f'file = "{index_name}"', text)
-                digest = hashlib.sha256((out / index_name).read_bytes()).hexdigest()
-                self.assertIn(f'hash = "{digest}"', text)
 
     def test_github_mirror_release_uses_releases_repo_for_retention(self):
         with tempfile.TemporaryDirectory() as tmp:

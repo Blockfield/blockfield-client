@@ -262,20 +262,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
         run: just python scripts/mirror-files.py github dist/mirror Blockfield/blockfield-pack-mirror files "$GITHUB_REF_NAME"
-      # Stable manifest copies for the launcher's GitHub fallback (pack.toml /
-      # launcher.json are otherwise pack-host-only). The manifest release tag
-      # is updated in place, never marked latest.
-      - name: Publish manifests to the GitHub manifest mirror
-        if: github.ref_type == 'tag'
-        env:
-          GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
-        run: |
-          just python scripts/mirror-files.py manifests dist/web dist-workshop/web dist/manifests
-          tag=manifest
-          gh release view "$tag" --repo Blockfield/blockfield-pack-mirror >/dev/null 2>&1 \
-            || gh release create "$tag" --repo Blockfield/blockfield-pack-mirror \
-              --title "Manifests" --notes "Stable manifest copies for the launcher fallback; updated every release."
-          gh release upload "$tag" --repo Blockfield/blockfield-pack-mirror --clobber dist/manifests/*
       # Release-time probe: every mirror in mirrors.json must serve the probe
       # file with its SHA, or the release fails before players hit a dead host.
       - name: Check published mirrors serve the probe file
