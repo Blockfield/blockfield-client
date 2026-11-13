@@ -526,7 +526,7 @@ metafile = true
 
 [[files]]
 file = "mods/tacz-refabricated.pw.toml"
-hash = "c05189fcb32d902e0b2e527a4bc8bd7e49343f3ab3862381767b1861137fbd80"
+hash = "f6ee7280464c0bb0b5e78622f833d0d93e9783cd5aa36438108022fc45428ccf"
 metafile = true
 
 [[files]]

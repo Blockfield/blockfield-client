@@ -5,4 +5,4 @@ side = "both"
 [download]
 url = "https://github.com/Blockfield/tacz-refabricated/releases/download/bf13/TACZ-Refabricated-1.21.1-0.7.0-bf13.jar"
 hash-format = "sha512"
-hash = "a27f23f77c7e6fca8551586df2b2fec48d185000d6a6d88faef495083d9f14c0daa517df3590802ed34c06a9ee387959a9f16038f74bd7619d32a6c30197e38a"
+hash = "5ae504cad2371897027fcca59c69d7d886bbdd2da25d5c0594e73452edf6cb0858809ae13dbbcd834c55fac360617b1805c23ba90547b445ccd35b3730217c85"
