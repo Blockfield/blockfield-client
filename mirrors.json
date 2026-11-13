@@ -1,5 +1,4 @@
 [
-  { "name": "Gcore CDN", "url": "https://cdn-test.blockfield.pro/{path}" },
   { "name": "Cloudflare R2", "url": "https://r2.blockfield.pro/{hash}" },
   {
     "name": "GitHub",

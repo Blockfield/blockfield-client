@@ -9,6 +9,7 @@ the GitHub mirror release keep every file under that name, shared by all release
 """
 
 import concurrent.futures
+import hashlib
 import json
 import os
 import re
@@ -16,8 +17,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 import urllib.parse
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 # GitHub allows about 500 content-creating requests an hour and 1000 assets per release.
@@ -334,12 +338,104 @@ def github(out, repo, tag, current=""):
     )
 
 
+def fetch_status(url, headers=(), timeout=30):
+    """(status, first chunk): Range-capable GET, redirects followed."""
+    # Cloudflare answers 403 to the default Python-urllib agent.
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "Blockfield-CI/1.0", **dict(headers)}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, response.read(2)
+    except urllib.error.HTTPError as error:
+        # urllib raises on non-2xx; a 0-byte object answers a Range GET with 416.
+        if error.code == 416:
+            return 416, b""
+        raise
+
+
+def verify_keys(keys, base, workers=16, timeout=30):
+    """Keys missing on the mirror base (Range GET each, 3 attempts)."""
+    base = base.rstrip("/")
+
+    def present(key):
+        url = f"{base}/{key}"
+        for attempt in range(3):
+            try:
+                status, _ = fetch_status(url, [("Range", "bytes=0-0")], timeout)
+                if status in (200, 206):
+                    return True
+                if status == 416:  # 0-byte object answers no range
+                    status, _ = fetch_status(url, [], timeout)
+                    return status == 200
+                return False
+            except Exception as error:
+                print(f"verify retry {key}: {error}")
+                time.sleep(attempt + 1)
+        return False
+
+    missing = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        for key, ok in zip(keys, pool.map(present, keys)):
+            if not ok:
+                missing.append(key)
+    return sorted(missing)
+
+
+def verify(manifest, base):
+    """Every manifest key must be present on the mirror, else fail loudly."""
+    keys = [
+        line.strip() for line in Path(manifest).read_text().splitlines() if line.strip()
+    ]
+    missing = verify_keys(keys, base)
+    print(f"Verified {len(keys) - len(missing)}/{len(keys)} keys on {base}")
+    if missing:
+        print(f"Missing on {base}:")
+        for key in missing:
+            print(f"  {key}")
+        raise SystemExit(f"{len(missing)} mirror keys missing on {base}")
+
+
+def check(web):
+    """Every mirror in web/mirrors.json serves the probe file with its SHA."""
+    mirrors = json.loads((Path(web) / "mirrors.json").read_text())
+    probe = mirrors["probe"]
+    failures = []
+    for entry in mirrors["mirrors"]:
+        url = (
+            entry["url"]
+            .replace("{path}", urllib.parse.quote(probe["path"]))
+            .replace("{hash}", probe["hash"])
+        )
+        try:
+            request = urllib.request.Request(
+                url, headers={"User-Agent": "Blockfield-CI/1.0"}
+            )
+            digest = hashlib.sha512()
+            with urllib.request.urlopen(request, timeout=300) as response:
+                while chunk := response.read(1 << 20):
+                    digest.update(chunk)
+            ok = digest.hexdigest() == probe["hash"]
+            print(f"{entry['name']}: {'ok' if ok else 'SHA MISMATCH'} {url}")
+            if not ok:
+                failures.append(entry["name"])
+        except Exception as error:
+            print(f"{entry['name']}: FAILED {url}: {error}")
+            failures.append(entry["name"])
+    if failures:
+        raise SystemExit(f"mirrors failing the probe file: {', '.join(failures)}")
+
+
 if __name__ == "__main__":
     command, *args = sys.argv[1:]
     if command == "stage":
         stage(Path(args[0]), Path(args[1]))
     elif command == "manifest":
         write_manifest(Path(args[0]), Path(args[1]))
+    elif command == "verify":
+        verify(Path(args[0]), args[1])
+    elif command == "check":
+        check(Path(args[0]))
     elif command == "github":
         github(Path(args[0]), args[1], args[2], args[3] if len(args) > 3 else "")
     elif command == "retain":

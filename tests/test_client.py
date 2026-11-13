@@ -240,6 +240,114 @@ class ClientBuildTests(unittest.TestCase):
         self.assertEqual(dropped, [])
         self.assertEqual(len(kept), 300)
 
+    def test_verify_reports_missing_r2_keys(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        body = b"R2 mirror probe bytes"
+        served = {"/abc123": body, "/empty0": b""}
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                # Like Cloudflare on the R2 domain: the default urllib agent is refused.
+                if self.headers.get("User-Agent", "").startswith("Python-urllib"):
+                    self.send_response(403)
+                    self.end_headers()
+                    return
+                data = served.get(self.path)
+                if data is None:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                blob = data
+                status = 200
+                ranges = self.headers.get("Range")
+                if ranges and not data:
+                    self.send_response(416)
+                    self.end_headers()
+                    return
+                if ranges:
+                    start, _, end = ranges.removeprefix("bytes=").partition("-")
+                    blob = data[int(start or 0) : (int(end) + 1 if end else None)]
+                    status = 206
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(blob)))
+                self.end_headers()
+                try:
+                    self.wfile.write(blob)
+                except BrokenPipeError:
+                    pass
+
+            def log_message(self, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            base = f"http://127.0.0.1:{server.server_port}"
+            missing = mirror_files.verify_keys(["abc123", "empty0", "deadbeef"], base)
+            self.assertEqual(missing, ["deadbeef"])
+        finally:
+            server.shutdown()
+            thread.join()
+
+    def test_check_verifies_probe_hash_on_every_mirror(self):
+        import hashlib
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        payload = b"mirror probe payload" * 100
+        digest = hashlib.sha512(payload).hexdigest()
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path in (f"/files/{digest}", "/files/probe.bin"):
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    try:
+                        self.wfile.write(payload)
+                    except BrokenPipeError:
+                        pass
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            base = f"http://127.0.0.1:{server.server_port}"
+            with tempfile.TemporaryDirectory() as tmp:
+                web = Path(tmp)
+                (web / "files").mkdir()
+                (web / "files" / "probe.bin").write_bytes(payload)
+                (web / "mirrors.json").write_text(
+                    json.dumps(
+                        {
+                            "schema": 1,
+                            "probe": {"path": "files/probe.bin", "hash": digest},
+                            "mirrors": [
+                                {"name": "Hashed", "url": base + "/files/{hash}"},
+                                {"name": "Pathed", "url": base + "/{path}"},
+                            ],
+                        }
+                    )
+                )
+                mirror_files.check(web)
+                mirrors = json.loads((web / "mirrors.json").read_text())
+                mirrors["probe"]["hash"] = "0" * 128
+                (web / "mirrors.json").write_text(json.dumps(mirrors))
+                with self.assertRaises(SystemExit):
+                    mirror_files.check(web)
+        finally:
+            server.shutdown()
+            thread.join()
+
     def test_github_mirror_release_uses_releases_repo_for_retention(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)

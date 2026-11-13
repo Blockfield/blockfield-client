@@ -1,8 +1,8 @@
 name = "[UNOFFICIAL] TaCZ: Refabricated (M700 -- повышен разброс от бедра, легче, темп SSG 08; Glock 17 усилен; SKS/SPR медленнее достаются; HK416D усилен вблизи; анимации подогнаны под тайминги; HUD Blockfield)"
-filename = "TACZ-Refabricated-1.21.1-0.7.0-bf12.jar"
+filename = "TACZ-Refabricated-1.21.1-0.7.0-bf13.jar"
 side = "both"
 
 [download]
-url = "https://github.com/Blockfield/tacz-refabricated/releases/download/bf12/TACZ-Refabricated-1.21.1-0.7.0-bf12.jar"
+url = "https://github.com/Blockfield/tacz-refabricated/releases/download/bf13/TACZ-Refabricated-1.21.1-0.7.0-bf13.jar"
 hash-format = "sha512"
-hash = "3eacd69bbd2a0277c6cdc167fd6e1993a82933a58921b841ee3a414fae99f5b035781cc6937ee68526586fad771ba0d9a5737798e2afd52a39d3aaaba3424e50"
+hash = "5ae504cad2371897027fcca59c69d7d886bbdd2da25d5c0594e73452edf6cb0858809ae13dbbcd834c55fac360617b1805c23ba90547b445ccd35b3730217c85"

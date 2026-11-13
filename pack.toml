@@ -1,12 +1,12 @@
 name = "Blockfield"
 author = "Blockfield"
-version = "2.81.0"
+version = "2.81.1"
 pack-format = "packwiz:1.1.0"
 
 [index]
 file = "index.toml"
 hash-format = "sha256"
-hash = "0964c6e1fdecf461892476f07e2d3b685144f5474bd433aab194da429a1cdecd"
+hash = "6e954261f2c4ac8bb6c04c204d7d971ee62dc59b354eef7b1d4b560826081102"
 
 [versions]
 fabric = "0.19.3"

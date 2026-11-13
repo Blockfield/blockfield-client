@@ -166,7 +166,7 @@ metafile = true
 
 [[files]]
 file = "mods/blockfield-client.pw.toml"
-hash = "4ffe7775168d280b217c0688927dbb52b23252800fb568967ed63a32f4292503"
+hash = "92cb7c380282ba0f97335b8d84e5b0994205ff4e68bdf4ee2ec115346e0b01e5"
 metafile = true
 
 [[files]]
@@ -526,7 +526,7 @@ metafile = true
 
 [[files]]
 file = "mods/tacz-refabricated.pw.toml"
-hash = "8e3510800eb83bef00942988fda7e5420e8beca9ec9a2efee074e23404a3f7bf"
+hash = "f6ee7280464c0bb0b5e78622f833d0d93e9783cd5aa36438108022fc45428ccf"
 metafile = true
 
 [[files]]

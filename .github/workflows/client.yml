@@ -18,6 +18,10 @@ on:
         description: "Published client tag (vX.Y.Z) whose notes to regenerate; never rebuilds the pack"
         required: false
         default: ""
+      republish_version:
+        description: "Released client tag (vX.Y.Z) whose pack files to republish to the R2 mirror; no rebuild"
+        required: false
+        default: ""
       reason:
         description: "Override reason (maintainers only)"
         required: true
@@ -73,7 +77,7 @@ jobs:
   lint:
     # Notes-regeneration dispatches skip CI; everything else
     # (main/tag pushes, PR heads, maintainer dispatches) always runs.
-    if: always() && inputs.release_text_tag == ''
+    if: always() && inputs.release_text_tag == '' && inputs.republish_version == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -105,7 +109,7 @@ jobs:
     # Notes-regeneration dispatches skip the build; everything else
     # (main/tag pushes, PR heads, maintainer dispatches) always runs, except
     # docs-only PRs, which the scope job gates out (pushes and tags always run full).
-    if: always() && inputs.release_text_tag == '' && needs.scope.outputs.docs_only != 'true'
+    if: always() && inputs.release_text_tag == '' && inputs.republish_version == '' && needs.scope.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -226,20 +230,18 @@ jobs:
           just python scripts/mirror-files.py stage dist-workshop/web dist/mirror
       - name: Publish files to the R2 mirror
         if: github.ref_type == 'tag'
-        continue-on-error: true
         env:
           RCLONE_CONFIG_PACK_TYPE: s3
           RCLONE_CONFIG_PACK_PROVIDER: Cloudflare
           RCLONE_CONFIG_PACK_ACCESS_KEY_ID: ${{ secrets.R2_PACK_ACCESS_KEY_ID }}
           RCLONE_CONFIG_PACK_SECRET_ACCESS_KEY: ${{ secrets.R2_PACK_SECRET_ACCESS_KEY }}
-          RCLONE_CONFIG_PACK_ENDPOINT: https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com
+          RCLONE_CONFIG_PACK_ENDPOINT: https://${{ vars.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           RCLONE_CONFIG_PACK_NO_CHECK_BUCKET: "true"
         run: just python scripts/quality.py run rclone copy dist/mirror pack:blockfield-pack --ignore-existing --transfers 8
       # R2 expires untouched objects 30 days after upload: refresh everything the
       # last releases still need so a rollback target stays downloadable (S3).
       - name: Retain last releases on the R2 mirror
         if: github.ref_type == 'tag'
-        continue-on-error: true
         timeout-minutes: 10
         env:
           GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
@@ -247,15 +249,25 @@ jobs:
           RCLONE_CONFIG_PACK_PROVIDER: Cloudflare
           RCLONE_CONFIG_PACK_ACCESS_KEY_ID: ${{ secrets.R2_PACK_ACCESS_KEY_ID }}
           RCLONE_CONFIG_PACK_SECRET_ACCESS_KEY: ${{ secrets.R2_PACK_SECRET_ACCESS_KEY }}
-          RCLONE_CONFIG_PACK_ENDPOINT: https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com
+          RCLONE_CONFIG_PACK_ENDPOINT: https://${{ vars.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           RCLONE_CONFIG_PACK_NO_CHECK_BUCKET: "true"
         run: just python scripts/mirror-files.py retain --tag "$GITHUB_REF_NAME" --staged-dir dist/mirror --remote pack:blockfield-pack
+      - name: Verify R2 mirror keys
+        if: github.ref_type == 'tag'
+        timeout-minutes: 10
+        run: just python scripts/mirror-files.py verify dist/mirror-manifest.txt https://r2.blockfield.pro
       - name: Publish files to the GitHub mirror
         if: github.ref_type == 'tag'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
         run: just python scripts/mirror-files.py github dist/mirror Blockfield/blockfield-pack-mirror files "$GITHUB_REF_NAME"
+      # Release-time probe: every mirror in mirrors.json must serve the probe
+      # file with its SHA, or the release fails before players hit a dead host.
+      - name: Check published mirrors serve the probe file
+        if: github.ref_type == 'tag'
+        timeout-minutes: 15
+        run: just python scripts/mirror-files.py check dist/web
       - name: Release text
         if: github.ref_type == 'tag'
         uses: Blockfield/blockfield-workspace/.github/actions/release-text@0388a416807af32fd784c44fe576be3b92279dce
@@ -302,12 +314,60 @@ jobs:
           path: tested-tree.txt
           retention-days: 7
           if-no-files-found: error
+  # Maintainer-only backfill: republish one released version's pack files to
+  # the R2 mirror from its release webs (no rebuild), then verify every key.
+  # Run from any branch with republish_version=vX.Y.Z and a reason.
+  republish-r2:
+    name: Republish R2 mirror for a released version
+    if: github.event_name == 'workflow_dispatch' && inputs.release_text_tag == '' && inputs.republish_version != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12.10"
+      - run: python -I -X utf8 scripts/toolchain.py --ci
+      - name: Download released pack webs
+        env:
+          GH_TOKEN: ${{ secrets.BLOCKFIELD_SOURCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${{ inputs.republish_version }}"
+          case "$version" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "republish_version must be vX.Y.Z, got: $version" >&2; exit 1 ;;
+          esac
+          mkdir -p republish/game republish/workshop republish/mirror
+          gh release download "$version" --repo Blockfield/blockfield-releases \
+            --pattern 'Blockfield-web.tar' --pattern 'Blockfield-workshop-web.tar' \
+            --pattern 'mirror-manifest.txt' --dir republish --clobber
+          tar -xf republish/Blockfield-web.tar -C republish/game
+          tar -xf republish/Blockfield-workshop-web.tar -C republish/workshop
+      - name: Republish files to the R2 mirror
+        env:
+          RCLONE_CONFIG_PACK_TYPE: s3
+          RCLONE_CONFIG_PACK_PROVIDER: Cloudflare
+          RCLONE_CONFIG_PACK_ACCESS_KEY_ID: ${{ secrets.R2_PACK_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_PACK_SECRET_ACCESS_KEY: ${{ secrets.R2_PACK_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_PACK_ENDPOINT: https://${{ vars.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          RCLONE_CONFIG_PACK_NO_CHECK_BUCKET: "true"
+        run: |
+          just python scripts/mirror-files.py stage republish/game republish/mirror
+          just python scripts/mirror-files.py stage republish/workshop republish/mirror
+          just python scripts/quality.py run rclone copy republish/mirror pack:blockfield-pack --ignore-existing --transfers 8
+      - name: Verify R2 mirror keys
+        timeout-minutes: 10
+        run: just python scripts/mirror-files.py verify republish/mirror-manifest.txt https://r2.blockfield.pro
   # Single required status for branch protection: green only when both
   # parallel jobs are. No checkout: the verdict is pure needs inspection.
   check:
     name: check
     needs: [scope, lint, build]
-    if: always() && inputs.release_text_tag == ''
+    if: always() && inputs.release_text_tag == '' && inputs.republish_version == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
