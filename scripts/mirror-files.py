@@ -351,6 +351,19 @@ def write_manifest_copies(game, workshop, out):
     out.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(game / "pack.toml", out / "pack.toml")
     shutil.copyfile(workshop / "pack.toml", out / "workshop-pack.toml")
+    # Both packs reference their index by bare filename while the pack host
+    # serves pack.toml and index.toml side by side. Co-publish both indexes
+    # under distinct names (rewiring the workshop copy) or the GitHub
+    # fallback resolves index.toml to a 404.
+    shutil.copyfile(game / "index.toml", out / "index.toml")
+    shutil.copyfile(workshop / "index.toml", out / "workshop-index.toml")
+    text = (out / "workshop-pack.toml").read_text()
+    patched = re.sub(
+        r'(?m)^file = "index\.toml"$', 'file = "workshop-index.toml"', text
+    )
+    if patched == text:
+        raise SystemExit("workshop pack.toml has no index file entry to rewire")
+    (out / "workshop-pack.toml").write_text(patched)
     for web, name, pack in (
         (game, "launcher.json", f"{MANIFEST_RELEASE_BASE}/pack.toml"),
         (
